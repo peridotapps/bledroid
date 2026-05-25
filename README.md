@@ -6,7 +6,11 @@ Bledroid is an Android Bluetooth library for connecting to and communicating wit
 
 - BLE scanning with `Flow<BleScanResult>`.
 - BLE GATT connect, service discovery, characteristic read/write, and notifications.
+- BLE client API exposes Flow-based response streams for notification-driven write flows.
+- Builder-based initialization with per-device defaults (timeouts, auto-connect, reconnect behavior, MTU, connection priority, preferred PHY).
 - Bluetooth broadcast monitoring for adapter state, bond changes, discovery, device found, ACL connect/disconnect, pairing requests, scan mode, and local name changes.
+- Encrypted bonded-connection metadata storage for reconnect on unexpected disconnect (configurable).
+- Serialized connect/disconnect and per-characteristic write coordination.
 - Runtime permission helpers for Android 6 through Android 15+ behavior.
 - Manifest permissions packaged in the library manifest.
 
@@ -44,6 +48,50 @@ val permissions = BluetoothPermissions.requiredRuntimePermissions(scan = true, c
 
 On Android 12 and newer this returns `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT`. On Android 11 and older, scanning requires `ACCESS_FINE_LOCATION`; connecting does not require a runtime Bluetooth permission.
 
+## Initialization
+
+You can initialize with a context directly:
+
+```kotlin
+val bledroid = Bledroid(context)
+```
+
+Or use global initialization once at app startup and then create instances without passing context:
+
+```kotlin
+Bledroid.initialize(appContext)
+val bledroid = Bledroid()
+```
+
+For device-specific behavior, use the builder pattern:
+
+```kotlin
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+
+val bledroid = Bledroid.builder()
+    .applicationContext(appContext) // optional if Bledroid.initialize(appContext) was already called
+    .deviceTypeTag("sensor-v2")
+    .defaultAutoConnect(true)
+    .connectTimeout(20.seconds)
+    .discoverServicesTimeout(15.seconds)
+    .readTimeout(8.seconds)
+    .writeTimeout(8.seconds)
+    .rssiTimeout(5.seconds)
+    .notificationOperationTimeout(8.seconds)
+    .notificationResponseTimeout(12.seconds)
+    .preferredMtu(247)
+    .preferredConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+    .preferredPhy(
+        txPhy = BluetoothDevice.PHY_LE_2M_MASK,
+        rxPhy = BluetoothDevice.PHY_LE_2M_MASK,
+        phyOptions = BluetoothDevice.PHY_OPTION_NO_PREFERRED,
+    )
+    .storeBondedConnectionMetadata(true)
+    .autoReconnectOnUnexpectedDisconnect(true)
+    .build()
+```
+
 ## BLE Scan
 
 ```kotlin
@@ -76,8 +124,8 @@ val job = lifecycleScope.launch {
             is BluetoothBroadcastEvent.DeviceFound -> {
                 Log.d("Bluetooth", "found ${event.device.address} rssi=${event.rssi}")
             }
-            BluetoothBroadcastEventDiscoveryStarted -> Unit
-            BluetoothBroadcastEventDiscoveryFinished -> Unit
+            BluetoothBroadcastEvent.DiscoveryStarted -> Unit
+            BluetoothBroadcastEvent.DiscoveryFinished -> Unit
             else -> Unit
         }
     }
@@ -87,7 +135,7 @@ val job = lifecycleScope.launch {
 ## BLE GATT
 
 ```kotlin
-val client = Bledroid(context).newBleClient()
+val client = Bledroid(context).client() // singleton per Bledroid instance
 
 lifecycleScope.launch {
     client.connect("AA:BB:CC:DD:EE:FF")
@@ -106,12 +154,24 @@ lifecycleScope.launch {
 }
 ```
 
+All timeout parameters are `Duration` values:
+
+```kotlin
+import kotlin.time.Duration.Companion.seconds
+
+client.connect("AA:BB:CC:DD:EE:FF", timeout = 15.seconds)
+client.read(batteryLevelCharacteristic, timeout = 5.seconds)
+client.write(commandCharacteristic, commandBytes, timeout = 5.seconds)
+```
+
 For command-style characteristics that notify or indicate a response on the same characteristic after a write:
 
 ```kotlin
 val response = client.writeAndObserveNotifications(
     characteristic = commandCharacteristic,
     value = commandBytes,
+    operationTimeout = 5.seconds,
+    responseTimeout = 10.seconds,
 ).first()
 ```
 
@@ -121,6 +181,8 @@ For commands that must be split into multiple BLE packets:
 val response = client.writePacketsAndObserveNotifications(
     characteristic = commandCharacteristic,
     packets = listOf(headerBytes, bodyBytes, checksumBytes),
+    operationTimeout = 5.seconds,
+    responseTimeout = 10.seconds,
 ).first()
 ```
 
@@ -151,3 +213,22 @@ client.characteristicWriteStates.collect { writingByCharacteristic ->
 ```
 
 Call `client.close()` when the connection is no longer needed.
+
+Connection behavior notes:
+- `client()` returns a single lazily created `BleClient` per `Bledroid` instance.
+- Overlapping `connect()` calls are guarded so only one connect attempt runs at a time.
+- Calling `connect()` when already connected is a no-op and returns the currently connected device info.
+- `disconnect()` is idempotent while a disconnect is already in progress.
+- Calling `disconnect()` when not connected is ignored (no-op).
+- Writes are serialized per characteristic, while writes to different characteristics can proceed concurrently.
+
+## Reconnect Metadata
+
+When `storeBondedConnectionMetadata(true)` is enabled (default), the library stores bonded-device connection metadata in an encrypted local table.
+
+On unexpected disconnect, if `autoReconnectOnUnexpectedDisconnect(true)` is enabled (default), the client can use stored metadata to attempt reconnect automatically.
+
+Reconnect behavior:
+- The client waits 2 seconds between reconnect attempts.
+- Only one reconnect loop can run at a time.
+- Reconnect attempts stop when the app process stops or when a manual disconnect is requested.

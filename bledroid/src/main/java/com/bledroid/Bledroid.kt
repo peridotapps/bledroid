@@ -4,23 +4,47 @@ import android.annotation.SuppressLint
 import android.content.Context
 import com.bledroid.ble.BleClient
 import com.bledroid.ble.BleClientImpl
+import com.bledroid.ble.BleDeviceConfiguration
+import com.bledroid.ble.BlePreferredPhy
 import com.bledroid.ble.BleScanner
 import com.bledroid.ble.BleScannerImpl
+import com.bledroid.core.AppContextProvider
 import com.bledroid.core.BluetoothDeviceInfo
 import com.bledroid.core.BluetoothEventMonitor
 import com.bledroid.core.BluetoothEventMonitorImpl
 import com.bledroid.core.bluetoothManager
 import com.bledroid.core.requireAdapter
 import com.bledroid.core.toDeviceInfo
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /** Entry point for creating Bluetooth scanners and clients. */
-class Bledroid(context: Context) {
-    private val appContext = context.applicationContext
+class Bledroid private constructor(
+    private val appContext: Context,
+    private val deviceConfiguration: BleDeviceConfiguration,
+) {
+    constructor() : this(
+        appContext = AppContextProvider.get(),
+        deviceConfiguration = BleDeviceConfiguration(),
+    )
+
+    constructor(context: Context) : this(
+        appContext = context.applicationContext,
+        deviceConfiguration = BleDeviceConfiguration(),
+    ) {
+        AppContextProvider.initialize(context)
+    }
 
     val bleScanner: BleScanner = BleScannerImpl(appContext)
     val eventMonitor: BluetoothEventMonitor = BluetoothEventMonitorImpl(appContext)
+    private val singletonClient: BleClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        BleClientImpl(
+            context = appContext,
+            configuration = deviceConfiguration,
+        )
+    }
 
-    fun newBleClient(): BleClient = BleClientImpl(appContext)
+    fun client(): BleClient = singletonClient
 
     fun isBluetoothAvailable(): Boolean = runCatching {
         appContext.bluetoothManager().requireAdapter()
@@ -38,4 +62,104 @@ class Bledroid(context: Context) {
             .map { it.toDeviceInfo() }
             .toSet()
     }.getOrDefault(emptySet())
+
+    companion object {
+        fun initialize(context: Context) {
+            AppContextProvider.initialize(context)
+        }
+
+        fun builder(): Builder = Builder()
+    }
+
+    class Builder {
+        private var appContext: Context? = null
+        private var deviceTypeTag: String? = null
+        private var defaultAutoConnect: Boolean = false
+        private var connectTimeout: Duration = 15.seconds
+        private var discoverServicesTimeout: Duration = 10.seconds
+        private var readTimeout: Duration = 10.seconds
+        private var writeTimeout: Duration = 10.seconds
+        private var rssiTimeout: Duration = 10.seconds
+        private var notificationOperationTimeout: Duration = 10.seconds
+        private var notificationResponseTimeout: Duration = 10.seconds
+        private var preferredMtu: Int? = null
+        private var preferredConnectionPriority: Int? = null
+        private var preferredPhy: BlePreferredPhy? = null
+        private var storeBondedConnectionMetadata: Boolean = true
+        private var autoReconnectOnUnexpectedDisconnect: Boolean = true
+
+        fun applicationContext(context: Context) = apply {
+            AppContextProvider.initialize(context)
+            appContext = context.applicationContext
+        }
+
+        fun deviceTypeTag(value: String?) = apply { deviceTypeTag = value }
+
+        fun defaultAutoConnect(value: Boolean) = apply { defaultAutoConnect = value }
+
+        fun connectTimeout(value: Duration) = apply { connectTimeout = value }
+
+        fun discoverServicesTimeout(value: Duration) = apply { discoverServicesTimeout = value }
+
+        fun readTimeout(value: Duration) = apply { readTimeout = value }
+
+        fun writeTimeout(value: Duration) = apply { writeTimeout = value }
+
+        fun rssiTimeout(value: Duration) = apply { rssiTimeout = value }
+
+        fun notificationOperationTimeout(value: Duration) = apply {
+            notificationOperationTimeout = value
+        }
+
+        fun notificationResponseTimeout(value: Duration) = apply {
+            notificationResponseTimeout = value
+        }
+
+        fun preferredMtu(value: Int?) = apply { preferredMtu = value }
+
+        fun preferredConnectionPriority(value: Int?) = apply { preferredConnectionPriority = value }
+
+        fun preferredPhy(
+            txPhy: Int,
+            rxPhy: Int,
+            phyOptions: Int = 0,
+        ) = apply {
+            preferredPhy = BlePreferredPhy(
+                txPhy = txPhy,
+                rxPhy = rxPhy,
+                phyOptions = phyOptions,
+            )
+        }
+
+        fun clearPreferredPhy() = apply { preferredPhy = null }
+
+        fun storeBondedConnectionMetadata(value: Boolean) = apply { storeBondedConnectionMetadata = value }
+
+        fun autoReconnectOnUnexpectedDisconnect(value: Boolean) = apply {
+            autoReconnectOnUnexpectedDisconnect = value
+        }
+
+        fun build(): Bledroid {
+            val resolvedContext = appContext ?: AppContextProvider.get()
+            return Bledroid(
+                appContext = resolvedContext,
+                deviceConfiguration = BleDeviceConfiguration(
+                    deviceTypeTag = deviceTypeTag,
+                    defaultAutoConnect = defaultAutoConnect,
+                    connectTimeout = connectTimeout,
+                    discoverServicesTimeout = discoverServicesTimeout,
+                    readTimeout = readTimeout,
+                    writeTimeout = writeTimeout,
+                    rssiTimeout = rssiTimeout,
+                    notificationOperationTimeout = notificationOperationTimeout,
+                    notificationResponseTimeout = notificationResponseTimeout,
+                    preferredMtu = preferredMtu,
+                    preferredConnectionPriority = preferredConnectionPriority,
+                    preferredPhy = preferredPhy,
+                    storeBondedConnectionMetadata = storeBondedConnectionMetadata,
+                    autoReconnectOnUnexpectedDisconnect = autoReconnectOnUnexpectedDisconnect,
+                ),
+            )
+        }
+    }
 }

@@ -8,6 +8,7 @@ import com.bledroid.core.BluetoothDeviceInfo
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlin.time.Duration
 
 /** BLE GATT client with serialized operations and Flow-based notifications. */
 interface BleClient : AutoCloseable {
@@ -16,49 +17,49 @@ interface BleClient : AutoCloseable {
 
     suspend fun connect(
         address: String,
-        autoConnect: Boolean = false,
-        timeoutMillis: Long = 15_000L,
+        autoConnect: Boolean? = null,
+        timeout: Duration? = null,
     ): BluetoothDeviceInfo
 
     suspend fun discoverServices(
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     ): List<BluetoothGattService>
 
     suspend fun read(
         characteristic: BluetoothGattCharacteristic,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     ): ByteArray
 
     @Deprecated("Pass the discovered BluetoothGattCharacteristic object instead.")
     suspend fun read(
         service: BluetoothGattService,
         characteristicUuid: UUID,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     ): ByteArray
 
     @Deprecated("Pass the discovered BluetoothGattCharacteristic object instead.")
     suspend fun read(
         id: BleCharacteristicId,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     ): ByteArray
 
     suspend fun readRssi(
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     ): Int
 
     suspend fun write(
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray,
         writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     )
 
     fun writeAndObserveNotifications(
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray,
         writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-        operationTimeoutMillis: Long = 10_000L,
-        responseTimeoutMillis: Long = 10_000L,
+        operationTimeout: Duration? = null,
+        responseTimeout: Duration? = null,
         disableNotificationsAfterResponse: Boolean = true,
     ): Flow<ByteArray>
 
@@ -66,8 +67,8 @@ interface BleClient : AutoCloseable {
         characteristic: BluetoothGattCharacteristic,
         packets: Collection<ByteArray>,
         writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-        operationTimeoutMillis: Long = 10_000L,
-        responseTimeoutMillis: Long = 10_000L,
+        operationTimeout: Duration? = null,
+        responseTimeout: Duration? = null,
         disableNotificationsAfterResponse: Boolean = true,
     ): Flow<ByteArray>
 
@@ -77,7 +78,7 @@ interface BleClient : AutoCloseable {
         characteristicUuid: UUID,
         value: ByteArray,
         writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     )
 
     @Deprecated("Pass the discovered BluetoothGattCharacteristic object instead.")
@@ -85,13 +86,13 @@ interface BleClient : AutoCloseable {
         id: BleCharacteristicId,
         value: ByteArray,
         writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     )
 
     suspend fun enableNotifications(
         characteristic: BluetoothGattCharacteristic,
         enabled: Boolean,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     )
 
     @Deprecated("Pass the discovered BluetoothGattCharacteristic object instead.")
@@ -99,14 +100,14 @@ interface BleClient : AutoCloseable {
         service: BluetoothGattService,
         characteristicUuid: UUID,
         enabled: Boolean,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     )
 
     @Deprecated("Pass the discovered BluetoothGattCharacteristic object instead.")
     suspend fun enableNotifications(
         id: BleCharacteristicId,
         enabled: Boolean,
-        timeoutMillis: Long = 10_000L,
+        timeout: Duration? = null,
     )
 
     fun notifications(

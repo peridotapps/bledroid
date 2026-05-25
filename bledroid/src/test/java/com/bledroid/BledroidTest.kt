@@ -11,6 +11,7 @@ import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,7 +37,8 @@ class BledroidTest {
 
         assertNotNull(bledroid.bleScanner)
         assertNotNull(bledroid.eventMonitor)
-        assertNotNull(bledroid.newBleClient())
+        assertNotNull(bledroid.client())
+        assertSame(bledroid.client(), bledroid.client())
         assertTrue(bledroid.isBluetoothAvailable())
         assertTrue(bledroid.isBluetoothEnabled())
 
@@ -76,5 +78,23 @@ class BledroidTest {
 
         assertTrue(bledroid.isBluetoothAvailable())
         assertFalse(bledroid.isBluetoothEnabled())
+    }
+
+    @Test
+    fun noArgConstructorUsesInitializedApplicationContext() {
+        val context = mockk<Context>()
+        val bluetoothManager = mockk<BluetoothManager>()
+        val adapter = mockk<BluetoothAdapter>()
+        every { context.applicationContext } returns context
+        every { context.getSystemService(BluetoothManager::class.java) } returns bluetoothManager
+        every { bluetoothManager.adapter } returns adapter
+        every { adapter.isEnabled } returns true
+        every { adapter.bondedDevices } returns emptySet()
+
+        Bledroid.initialize(context)
+        val bledroid = Bledroid()
+
+        assertTrue(bledroid.isBluetoothAvailable())
+        assertTrue(bledroid.isBluetoothEnabled())
     }
 }

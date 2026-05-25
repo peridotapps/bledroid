@@ -14,6 +14,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import com.bledroid.core.BleCharacteristicId
 import com.bledroid.core.BluetoothConnectionState
+import com.bledroid.core.BluetoothConnectionStateConnected
 import com.bledroid.core.BluetoothConnectionStateDisconnected
 import com.bledroid.core.BluetoothConnectionStateDisconnecting
 import com.bledroid.core.BluetoothGattException
@@ -32,11 +33,16 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -55,7 +61,7 @@ class BleClientTest {
         )
 
         try {
-            client.connect(address = "00:11:22:33:44:55", timeoutMillis = 100)
+            client.connect(address = "00:11:22:33:44:55", timeout = 100.milliseconds)
             fail("Expected permission failure.")
         } catch (error: MissingBluetoothPermissionException) {
             assertTrue(error.message.orEmpty().contains("Missing Bluetooth connect permission"))
@@ -73,7 +79,7 @@ class BleClientTest {
         )
 
         try {
-            client.write(characteristic, byteArrayOf(0x01), timeoutMillis = 100)
+            client.write(characteristic, byteArrayOf(0x01), timeout = 100.milliseconds)
             fail("Expected write to fail when no connection is active.")
         } catch (error: NotConnectedException) {
             assertEquals(
@@ -99,11 +105,43 @@ class BleClientTest {
 
         val client: BleClient = BleClientImpl(context = context, dispatcher = StandardTestDispatcher())
         try {
-            client.connect(address = address, timeoutMillis = 1_000)
+            client.connect(address = address, timeout = 1.seconds)
             fail("Expected null GATT failure.")
         } catch (error: BluetoothUnavailableException) {
             assertEquals("Android returned a null BluetoothGatt.", error.message)
         }
+    }
+
+    @Test
+    fun connectDoesNothingWhenClientIsAlreadyConnected() = runTest {
+        val address = "01:02:03:04:05:06"
+        val context = mockPermittedContext()
+        val manager = mockk<BluetoothManager>()
+        val adapter = mockk<BluetoothAdapter>()
+        val device = mockk<BluetoothDevice>()
+        val gatt = mockk<BluetoothGatt>()
+        val callbackSlot = slot<BluetoothGattCallback>()
+
+        every { context.getSystemService(BluetoothManager::class.java) } returns manager
+        every { manager.adapter } returns adapter
+        every { adapter.isEnabled } returns true
+        every { adapter.getRemoteDevice(address) } returns device
+        every { device.name } returns "Sensor"
+        every { device.address } returns address
+        every { device.type } returns BluetoothDevice.DEVICE_TYPE_LE
+        every { device.bondState } returns BluetoothDevice.BOND_BONDED
+        every { device.connectGatt(context, false, capture(callbackSlot), BluetoothDevice.TRANSPORT_LE) } answers {
+            callbackSlot.captured.onConnectionStateChange(gatt, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+            gatt
+        }
+
+        val client: BleClient = BleClientImpl(context = context, dispatcher = StandardTestDispatcher())
+        val firstConnect = client.connect(address = address, timeout = 1.seconds)
+        val secondConnect = client.connect(address = "AA:BB:CC:DD:EE:FF", timeout = 1.seconds)
+
+        assertEquals(firstConnect, secondConnect)
+        assertTrue(client.connectionState.value is BluetoothConnectionStateConnected)
+        verify(exactly = 1) { device.connectGatt(context, false, any(), BluetoothDevice.TRANSPORT_LE) }
     }
 
     @Test
@@ -150,7 +188,7 @@ class BleClientTest {
         )
 
         try {
-            client.readRssi(timeoutMillis = 100)
+            client.readRssi(timeout = 100.milliseconds)
             fail("Expected RSSI read to fail when no connection is active.")
         } catch (error: NotConnectedException) {
             // Expected.
@@ -189,9 +227,9 @@ class BleClientTest {
             context = context,
             dispatcher = StandardTestDispatcher(),
         )
-        client.connect(address = address, timeoutMillis = 1_000)
+        client.connect(address = address, timeout = 1.seconds)
 
-        val rssi = client.readRssi(timeoutMillis = 1_000)
+        val rssi = client.readRssi(timeout = 1.seconds)
         assertEquals(-47, rssi)
     }
 
@@ -224,10 +262,10 @@ class BleClientTest {
             context = context,
             dispatcher = StandardTestDispatcher(),
         )
-        client.connect(address = address, timeoutMillis = 1_000)
+        client.connect(address = address, timeout = 1.seconds)
 
         try {
-            client.readRssi(timeoutMillis = 1_000)
+            client.readRssi(timeout = 1.seconds)
             fail("Expected RSSI read start failure to throw.")
         } catch (error: BluetoothUnavailableException) {
             assertEquals("readRemoteRssi() returned false.", error.message)
@@ -261,9 +299,9 @@ class BleClientTest {
         }
 
         val client: BleClient = BleClientImpl(context = context, dispatcher = StandardTestDispatcher())
-        client.connect(address = address, timeoutMillis = 1_000)
+        client.connect(address = address, timeout = 1.seconds)
         try {
-            client.readRssi(timeoutMillis = 1_000)
+            client.readRssi(timeout = 1.seconds)
             fail("Expected RSSI callback failure.")
         } catch (error: BluetoothGattException) {
             assertTrue(error.message.orEmpty().contains("Read remote RSSI"))
@@ -280,7 +318,7 @@ class BleClientTest {
             true
         }
 
-        val services = fixture.client.discoverServices(timeoutMillis = 1_000)
+        val services = fixture.client.discoverServices(timeout = 1.seconds)
 
         assertEquals(listOf(discoveredService), services)
     }
@@ -294,7 +332,7 @@ class BleClientTest {
         }
 
         try {
-            fixture.client.discoverServices(timeoutMillis = 1_000)
+            fixture.client.discoverServices(timeout = 1.seconds)
             fail("Expected service discovery failure.")
         } catch (error: BluetoothGattException) {
             assertTrue(error.message.orEmpty().contains("Service discovery"))
@@ -320,7 +358,7 @@ class BleClientTest {
             android.bluetooth.BluetoothStatusCodes.SUCCESS
         }
 
-        fixture.client.write(characteristic, byteArrayOf(0x12, 0x34), timeoutMillis = 1_000)
+        fixture.client.write(characteristic, byteArrayOf(0x12, 0x34), timeout = 1.seconds)
         assertArrayEquals(byteArrayOf(0x12, 0x34), writtenValue)
         assertEquals(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT, writtenType)
     }
@@ -341,7 +379,7 @@ class BleClientTest {
         }
 
         try {
-            fixture.client.write(characteristic, byteArrayOf(0x12), timeoutMillis = 1_000)
+            fixture.client.write(characteristic, byteArrayOf(0x12), timeout = 1.seconds)
             fail("Expected write failure.")
         } catch (error: BluetoothGattException) {
             assertTrue(error.message.orEmpty().contains("Characteristic write"))
@@ -388,8 +426,8 @@ class BleClientTest {
             fixture.client.writePacketsAndObserveNotifications(
                 characteristic = characteristic,
                 packets = listOf(byteArrayOf(0x01), byteArrayOf(0x02, 0x03)),
-                operationTimeoutMillis = 1_000,
-                responseTimeoutMillis = 1_000,
+                operationTimeout = 1.seconds,
+                responseTimeout = 1.seconds,
                 disableNotificationsAfterResponse = false,
             ).first()
         }
@@ -434,8 +472,8 @@ class BleClientTest {
         val result = fixture.client.writePacketsAndObserveNotifications(
             characteristic = characteristic,
             packets = listOf(byteArrayOf(0x01)),
-            operationTimeoutMillis = 1_000,
-            responseTimeoutMillis = 1_000,
+            operationTimeout = 1.seconds,
+            responseTimeout = 1.seconds,
         ).first()
         assertArrayEquals(byteArrayOf(0x7F), result)
         advanceUntilIdle()
@@ -477,8 +515,8 @@ class BleClientTest {
             fixture.client.writePacketsAndObserveNotifications(
                 characteristic = characteristic,
                 packets = listOf(byteArrayOf(0x01), byteArrayOf(0x02)),
-                operationTimeoutMillis = 1_000,
-                responseTimeoutMillis = 20,
+                operationTimeout = 1.seconds,
+                responseTimeout = 20.milliseconds,
                 disableNotificationsAfterResponse = false,
             ).first()
             fail("Expected timeout when no notification is received after final packet.")
@@ -578,7 +616,7 @@ class BleClientTest {
             true
         }
 
-        val value = fixture.client.read(characteristic, timeoutMillis = 1_000)
+        val value = fixture.client.read(characteristic, timeout = 1.seconds)
 
         assertArrayEquals(byteArrayOf(0x01, 0x02, 0x03), value)
     }
@@ -593,7 +631,7 @@ class BleClientTest {
         }
 
         try {
-            fixture.client.read(characteristic, timeoutMillis = 1_000)
+            fixture.client.read(characteristic, timeout = 1.seconds)
             fail("Expected read failure.")
         } catch (error: BluetoothGattException) {
             assertTrue(error.message.orEmpty().contains("Characteristic read"))
@@ -618,8 +656,8 @@ class BleClientTest {
             true
         }
 
-        val byService = fixture.client.read(service, characteristic.uuid, timeoutMillis = 1_000)
-        val byId = fixture.client.read(BleCharacteristicId(service.uuid, characteristic.uuid), timeoutMillis = 1_000)
+        val byService = fixture.client.read(service, characteristic.uuid, timeout = 1.seconds)
+        val byId = fixture.client.read(BleCharacteristicId(service.uuid, characteristic.uuid), timeout = 1.seconds)
 
         assertArrayEquals(byteArrayOf(0x41, 0x42), byService)
         assertArrayEquals(byteArrayOf(0x41, 0x42), byId)
@@ -642,8 +680,8 @@ class BleClientTest {
             android.bluetooth.BluetoothStatusCodes.SUCCESS
         }
 
-        fixture.client.write(service, characteristic.uuid, byteArrayOf(0x01), timeoutMillis = 1_000)
-        fixture.client.write(BleCharacteristicId(service.uuid, characteristic.uuid), byteArrayOf(0x02), timeoutMillis = 1_000)
+        fixture.client.write(service, characteristic.uuid, byteArrayOf(0x01), timeout = 1.seconds)
+        fixture.client.write(BleCharacteristicId(service.uuid, characteristic.uuid), byteArrayOf(0x02), timeout = 1.seconds)
     }
 
     @Suppress("DEPRECATION")
@@ -674,8 +712,8 @@ class BleClientTest {
             true
         }
 
-        fixture.client.enableNotifications(service, characteristic.uuid, enabled = true, timeoutMillis = 1_000)
-        fixture.client.enableNotifications(BleCharacteristicId(service.uuid, characteristic.uuid), enabled = true, timeoutMillis = 1_000)
+        fixture.client.enableNotifications(service, characteristic.uuid, enabled = true, timeout = 1.seconds)
+        fixture.client.enableNotifications(BleCharacteristicId(service.uuid, characteristic.uuid), enabled = true, timeout = 1.seconds)
     }
 
     @Suppress("DEPRECATION")
@@ -718,7 +756,7 @@ class BleClientTest {
         every { characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")) } returns null
 
         try {
-            fixture.client.enableNotifications(characteristic, enabled = true, timeoutMillis = 1_000)
+            fixture.client.enableNotifications(characteristic, enabled = true, timeout = 1.seconds)
             fail("Expected missing CCCD descriptor to fail.")
         } catch (error: BluetoothUnavailableException) {
             assertEquals(
@@ -746,7 +784,7 @@ class BleClientTest {
         every { fixture.gatt.setCharacteristicNotification(characteristic, true) } returns false
 
         try {
-            fixture.client.enableNotifications(characteristic, enabled = true, timeoutMillis = 1_000)
+            fixture.client.enableNotifications(characteristic, enabled = true, timeout = 1.seconds)
             fail("Expected local notification enable failure.")
         } catch (error: BluetoothUnavailableException) {
             assertEquals("setCharacteristicNotification() returned false.", error.message)
@@ -796,7 +834,7 @@ class BleClientTest {
         every { fixture.gatt.getService(id.serviceUuid) } returns null
 
         try {
-            fixture.client.read(id, timeoutMillis = 1_000)
+            fixture.client.read(id, timeout = 1.seconds)
             fail("Expected missing service.")
         } catch (error: BluetoothUnavailableException) {
             assertTrue(error.message.orEmpty().contains("was not found"))
@@ -811,7 +849,7 @@ class BleClientTest {
         val missingCharacteristicUuid = UUID.randomUUID()
 
         try {
-            fixture.client.read(service, missingCharacteristicUuid, timeoutMillis = 1_000)
+            fixture.client.read(service, missingCharacteristicUuid, timeout = 1.seconds)
             fail("Expected missing characteristic.")
         } catch (error: BluetoothUnavailableException) {
             assertTrue(error.message.orEmpty().contains("was not found"))
@@ -869,12 +907,63 @@ class BleClientTest {
         val response = fixture.client.writeAndObserveNotifications(
             characteristic = characteristic,
             value = byteArrayOf(0x01, 0x02),
-            operationTimeoutMillis = 1_000,
-            responseTimeoutMillis = 1_000,
+            operationTimeout = 1.seconds,
+            responseTimeout = 1.seconds,
             disableNotificationsAfterResponse = false,
         ).first()
 
         assertArrayEquals(byteArrayOf(0x7F), response)
+    }
+
+    @Test
+    fun queuedWriteTimeoutDoesNotStartUntilThatWriteBeginsProcessing() = runTest {
+        val fixture = connectedFixture(
+            address = "05:05:05:05:05:05",
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val service = BluetoothGattService(UUID.randomUUID(), BluetoothGattService.SERVICE_TYPE_PRIMARY)
+        val characteristic = BluetoothGattCharacteristic(
+            UUID.randomUUID(),
+            BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PERMISSION_WRITE,
+        )
+        service.addCharacteristic(characteristic)
+
+        var writeCallCount = 0
+        every { fixture.gatt.writeCharacteristic(characteristic, any(), any()) } answers {
+            writeCallCount += 1
+            if (writeCallCount == 2) {
+                fixture.callback.onCharacteristicWrite(fixture.gatt, characteristic, BluetoothGatt.GATT_SUCCESS)
+            }
+            android.bluetooth.BluetoothStatusCodes.SUCCESS
+        }
+
+        val firstWrite = async {
+            fixture.client.write(
+                characteristic = characteristic,
+                value = byteArrayOf(0x01),
+                timeout = 5.seconds,
+            )
+        }
+        runCurrent()
+
+        val secondWrite = async {
+            fixture.client.write(
+                characteristic = characteristic,
+                value = byteArrayOf(0x02),
+                timeout = 100.milliseconds,
+            )
+        }
+
+        advanceTimeBy(500)
+        assertFalse(secondWrite.isCompleted)
+
+        fixture.callback.onCharacteristicWrite(fixture.gatt, characteristic, BluetoothGatt.GATT_SUCCESS)
+        runCurrent()
+
+        firstWrite.await()
+        secondWrite.await()
+        assertEquals(2, writeCallCount)
     }
 
     private fun mockPermittedContext(): Context {
@@ -930,7 +1019,7 @@ class BleClientTest {
             context = context,
             dispatcher = dispatcher,
         )
-        client.connect(address = address, timeoutMillis = 1_000)
+        client.connect(address = address, timeout = 1.seconds)
         return ConnectedFixture(client = client, gatt = gatt, callback = callbackSlot.captured)
     }
 

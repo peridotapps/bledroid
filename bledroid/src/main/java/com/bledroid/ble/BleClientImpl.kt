@@ -31,18 +31,22 @@ import com.bledroid.core.supportsNotify
 import com.bledroid.core.toDeviceInfo
 import com.bledroid.permissions.BluetoothPermissions
 import java.util.UUID
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -55,12 +59,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeout
 
 @SuppressLint("MissingPermission")
 internal class BleClientImpl(
     context: Context,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val bondedConnectionStore: BondedConnectionStore =
+        EncryptedBondedConnectionStore(context.applicationContext),
+    private val configuration: BleDeviceConfiguration = BleDeviceConfiguration(),
 ) : BleClient {
     private val appContext = context.applicationContext
     private val operationMutex = Mutex()
@@ -79,64 +87,91 @@ internal class BleClientImpl(
 
     @Volatile
     private var callback: GattCallback? = null
+    private val manualDisconnectRequested = AtomicBoolean(false)
+    private val allowAutoReconnect = AtomicBoolean(true)
+    private val reconnectInProgress = AtomicBoolean(false)
+    private val connectInProgress = AtomicBoolean(false)
+    private val lastAutoConnect = AtomicBoolean(false)
+    @Volatile
+    private var reconnectJob: Job? = null
 
     override suspend fun connect(
         address: String,
-        autoConnect: Boolean,
-        timeoutMillis: Long,
+        autoConnect: Boolean?,
+        timeout: Duration?,
     ): BluetoothDeviceInfo {
-        requireConnectPermission()
-        val adapter = appContext.bluetoothManager().requireAdapter()
-        adapter.requireEnabled()
-        val device = adapter.getRemoteDevice(address)
+        val connectedDevice = (_connectionState.value as? BluetoothConnectionStateConnected)?.device
+        if (connectedDevice != null) {
+            return connectedDevice
+        }
+        if (!connectInProgress.compareAndSet(false, true)) {
+            throw BluetoothUnavailableException("A connection attempt is already in progress.")
+        }
+        val resolvedAutoConnect = autoConnect ?: configuration.defaultAutoConnect
+        val resolvedTimeout = resolveTimeout(timeout, configuration.connectTimeout)
+        manualDisconnectRequested.set(false)
+        allowAutoReconnect.set(true)
+        lastAutoConnect.set(resolvedAutoConnect)
+        try {
+            requireConnectPermission()
+            val adapter = appContext.bluetoothManager().requireAdapter()
+            adapter.requireEnabled()
+            val device = adapter.getRemoteDevice(address)
 
-        _connectionState.value = BluetoothConnectionStateConnecting
+            _connectionState.value = BluetoothConnectionStateConnecting
 
-        return withTimeout(timeoutMillis) {
-            suspendCancellableCoroutine { continuation ->
-                val gattCallback = GattCallback(device)
-                callback = gattCallback
-                gattCallback.setConnectContinuation(continuation)
+            return withTimeout(resolvedTimeout.inWholeMilliseconds) {
+                suspendCancellableCoroutine { continuation ->
+                    val gattCallback = GattCallback(device)
+                    callback = gattCallback
+                    gattCallback.setConnectContinuation(continuation)
 
-                val createdGatt = try {
-                    device.connectGatt(appContext, autoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE)
-                } catch (error: SecurityException) {
-                    val permissionError = MissingBluetoothPermissionException(
-                        "Missing Bluetooth connect permission. Request BluetoothPermissions.requiredRuntimePermissionsForConnect().",
-                        error,
-                    )
-                    _connectionState.value = BluetoothConnectionStateFailed(permissionError)
-                    continuation.resumeWithException(permissionError)
-                    return@suspendCancellableCoroutine
-                }
+                    val createdGatt = try {
+                        device.connectGatt(appContext, resolvedAutoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                    } catch (error: SecurityException) {
+                        val permissionError = MissingBluetoothPermissionException(
+                            "Missing Bluetooth connect permission. Request BluetoothPermissions.requiredRuntimePermissionsForConnect().",
+                            error,
+                        )
+                        _connectionState.value = BluetoothConnectionStateFailed(permissionError)
+                        continuation.resumeWithException(permissionError)
+                        return@suspendCancellableCoroutine
+                    }
 
-                if (createdGatt == null) {
-                    val error = BluetoothUnavailableException("Android returned a null BluetoothGatt.")
-                    _connectionState.value = BluetoothConnectionStateFailed(error)
-                    continuation.resumeWithException(error)
-                    return@suspendCancellableCoroutine
-                }
+                    if (createdGatt == null) {
+                        val error = BluetoothUnavailableException("Android returned a null BluetoothGatt.")
+                        _connectionState.value = BluetoothConnectionStateFailed(error)
+                        continuation.resumeWithException(error)
+                        return@suspendCancellableCoroutine
+                    }
 
-                gatt = createdGatt
-                continuation.invokeOnCancellation {
-                    gattCallback.clearConnectContinuation()
-                    closeGatt(createdGatt)
-                    _connectionState.value = BluetoothConnectionStateDisconnected
+                    gatt = createdGatt
+                    continuation.invokeOnCancellation {
+                        gattCallback.clearConnectContinuation()
+                        closeGatt(createdGatt)
+                        _connectionState.value = BluetoothConnectionStateDisconnected
+                    }
                 }
             }
+        } finally {
+            connectInProgress.set(false)
         }
     }
 
     override suspend fun discoverServices(
-        timeoutMillis: Long,
-    ): List<BluetoothGattService> = withGattOperation(timeoutMillis) { activeGatt, activeCallback ->
+        timeout: Duration?,
+    ): List<BluetoothGattService> = withGattOperation(
+        resolveTimeout(timeout, configuration.discoverServicesTimeout),
+    ) { activeGatt, activeCallback ->
         activeCallback.discoverServices(activeGatt)
     }
 
     override suspend fun read(
         characteristic: BluetoothGattCharacteristic,
-        timeoutMillis: Long,
-    ): ByteArray = withGattOperation(timeoutMillis) { activeGatt, activeCallback ->
+        timeout: Duration?,
+    ): ByteArray = withGattOperation(
+        resolveTimeout(timeout, configuration.readTimeout),
+    ) { activeGatt, activeCallback ->
         activeCallback.readCharacteristic(activeGatt, characteristic)
     }
 
@@ -144,8 +179,10 @@ internal class BleClientImpl(
     override suspend fun read(
         service: BluetoothGattService,
         characteristicUuid: UUID,
-        timeoutMillis: Long,
-    ): ByteArray = withGattOperation(timeoutMillis) { activeGatt, activeCallback ->
+        timeout: Duration?,
+    ): ByteArray = withGattOperation(
+        resolveTimeout(timeout, configuration.readTimeout),
+    ) { activeGatt, activeCallback ->
         val characteristic = service.requireCharacteristic(characteristicUuid)
         activeCallback.readCharacteristic(activeGatt, characteristic)
     }
@@ -153,15 +190,19 @@ internal class BleClientImpl(
     @Deprecated("Pass the discovered BluetoothGattCharacteristic object instead.")
     override suspend fun read(
         id: BleCharacteristicId,
-        timeoutMillis: Long,
-    ): ByteArray = withGattOperation(timeoutMillis) { activeGatt, activeCallback ->
+        timeout: Duration?,
+    ): ByteArray = withGattOperation(
+        resolveTimeout(timeout, configuration.readTimeout),
+    ) { activeGatt, activeCallback ->
         val characteristic = activeGatt.requireCharacteristic(id)
         activeCallback.readCharacteristic(activeGatt, characteristic)
     }
 
     override suspend fun readRssi(
-        timeoutMillis: Long,
-    ): Int = withGattOperation(timeoutMillis) { activeGatt, activeCallback ->
+        timeout: Duration?,
+    ): Int = withGattOperation(
+        resolveTimeout(timeout, configuration.rssiTimeout),
+    ) { activeGatt, activeCallback ->
         activeCallback.readRemoteRssi(activeGatt)
     }
 
@@ -169,9 +210,9 @@ internal class BleClientImpl(
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray,
         writeType: Int,
-        timeoutMillis: Long,
+        timeout: Duration?,
     ) = withCharacteristicWrite(characteristic) { activeGatt, activeCallback ->
-        withTimeout(timeoutMillis) {
+        withTimeout(resolveTimeout(timeout, configuration.writeTimeout).inWholeMilliseconds) {
             activeCallback.writeCharacteristic(activeGatt, characteristic, value, writeType)
         }
     }
@@ -180,31 +221,35 @@ internal class BleClientImpl(
         characteristic: BluetoothGattCharacteristic,
         value: ByteArray,
         writeType: Int,
-        operationTimeoutMillis: Long,
-        responseTimeoutMillis: Long,
+        operationTimeout: Duration?,
+        responseTimeout: Duration?,
         disableNotificationsAfterResponse: Boolean,
     ): Flow<ByteArray> = writePacketsAndObserveNotifications(
         characteristic = characteristic,
         packets = listOf(value),
         writeType = writeType,
-        operationTimeoutMillis = operationTimeoutMillis,
-        responseTimeoutMillis = responseTimeoutMillis,
+        operationTimeout = operationTimeout,
+        responseTimeout = responseTimeout,
         disableNotificationsAfterResponse = disableNotificationsAfterResponse,
     )
 
     /**
      * Writes packets sequentially and emits notifications or indications after the final packet.
-     * The notification flow is active before writes begin, but responseTimeoutMillis starts after the last write completes.
+     * The notification flow is active before writes begin, but responseTimeout starts after the last write completes.
      */
     override fun writePacketsAndObserveNotifications(
         characteristic: BluetoothGattCharacteristic,
         packets: Collection<ByteArray>,
         writeType: Int,
-        operationTimeoutMillis: Long,
-        responseTimeoutMillis: Long,
+        operationTimeout: Duration?,
+        responseTimeout: Duration?,
         disableNotificationsAfterResponse: Boolean,
     ): Flow<ByteArray> {
         require(packets.isNotEmpty()) { "packets must contain at least one packet." }
+        val resolvedOperationTimeout =
+            resolveTimeout(operationTimeout, configuration.notificationOperationTimeout)
+        val resolvedResponseTimeout =
+            resolveTimeout(responseTimeout, configuration.notificationResponseTimeout)
 
         val listenerId = characteristic.toCharacteristicId()
         val packetCount = packets.size
@@ -218,24 +263,26 @@ internal class BleClientImpl(
 
             val startedWrites = AtomicInteger(0)
             val completedWrites = AtomicInteger(0)
-            val pendingFinalNotifications = ConcurrentLinkedQueue<ByteArray>()
+            val pendingFinalNotifications = ArrayDeque<ByteArray>()
+            val pendingFinalNotificationsLock = Any()
             val responseTimeoutStarted = AtomicBoolean(false)
             var responseTimeoutJob: Job? = null
 
             fun startResponseTimeout() {
                 if (responseTimeoutStarted.compareAndSet(false, true)) {
                     responseTimeoutJob = launch {
-                        delay(responseTimeoutMillis)
+                        delay(resolvedResponseTimeout.inWholeMilliseconds)
                         close(BluetoothUnavailableException("Timed out waiting for a notification from characteristic ${characteristic.uuid}."))
                     }
                 }
             }
 
             fun emitPendingFinalNotifications() {
-                var pending = pendingFinalNotifications.poll()
-                while (pending != null) {
+                while (true) {
+                    val pending = synchronized(pendingFinalNotificationsLock) {
+                        if (pendingFinalNotifications.isEmpty()) null else pendingFinalNotifications.removeFirst()
+                    } ?: break
                     trySend(pending)
-                    pending = pendingFinalNotifications.poll()
                 }
             }
 
@@ -244,7 +291,9 @@ internal class BleClientImpl(
                 when {
                     completedWrites.get() >= packetCount -> trySend(value)
                     startedWrites.get() >= packetCount && completedWrites.get() == packetCount - 1 -> {
-                        pendingFinalNotifications.add(value)
+                        synchronized(pendingFinalNotificationsLock) {
+                            pendingFinalNotifications.addLast(value)
+                        }
                     }
                 }
             }
@@ -253,13 +302,13 @@ internal class BleClientImpl(
             val writer = launch {
                 try {
                     withCharacteristicWrite(characteristic) { activeGatt, activeCallback ->
-                        withTimeout(operationTimeoutMillis) {
+                        withTimeout(resolvedOperationTimeout.inWholeMilliseconds) {
                             activeCallback.setNotifications(activeGatt, characteristic, enabled = true)
                         }
 
                         packets.forEach { packet ->
                             startedWrites.incrementAndGet()
-                            withTimeout(operationTimeoutMillis) {
+                            withTimeout(resolvedOperationTimeout.inWholeMilliseconds) {
                                 activeCallback.writeCharacteristic(activeGatt, characteristic, packet, writeType)
                             }
                             if (completedWrites.incrementAndGet() == packetCount) {
@@ -281,7 +330,7 @@ internal class BleClientImpl(
                     cleanupScope.launch {
                         val activeGatt = gatt ?: return@launch
                         runCatching {
-                            withTimeout(operationTimeoutMillis) {
+                            withTimeout(resolvedOperationTimeout.inWholeMilliseconds) {
                                 activeCallback.setNotifications(activeGatt, characteristic, enabled = false)
                             }
                         }
@@ -297,10 +346,10 @@ internal class BleClientImpl(
         characteristicUuid: UUID,
         value: ByteArray,
         writeType: Int,
-        timeoutMillis: Long,
+        timeout: Duration?,
     ) = withCharacteristicWrite(service.requireCharacteristic(characteristicUuid)) { activeGatt, activeCallback ->
         val characteristic = service.requireCharacteristic(characteristicUuid)
-        withTimeout(timeoutMillis) {
+        withTimeout(resolveTimeout(timeout, configuration.writeTimeout).inWholeMilliseconds) {
             activeCallback.writeCharacteristic(activeGatt, characteristic, value, writeType)
         }
     }
@@ -310,10 +359,10 @@ internal class BleClientImpl(
         id: BleCharacteristicId,
         value: ByteArray,
         writeType: Int,
-        timeoutMillis: Long,
+        timeout: Duration?,
     ) = withCharacteristicWrite(id) { activeGatt, activeCallback ->
         val characteristic = activeGatt.requireCharacteristic(id)
-        withTimeout(timeoutMillis) {
+        withTimeout(resolveTimeout(timeout, configuration.writeTimeout).inWholeMilliseconds) {
             activeCallback.writeCharacteristic(activeGatt, characteristic, value, writeType)
         }
     }
@@ -321,8 +370,8 @@ internal class BleClientImpl(
     override suspend fun enableNotifications(
         characteristic: BluetoothGattCharacteristic,
         enabled: Boolean,
-        timeoutMillis: Long,
-    ) = withGattOperation(timeoutMillis) { activeGatt, activeCallback ->
+        timeout: Duration?,
+    ) = withGattOperation(resolveTimeout(timeout, configuration.notificationOperationTimeout)) { activeGatt, activeCallback ->
         activeCallback.setNotifications(activeGatt, characteristic, enabled)
     }
 
@@ -331,8 +380,8 @@ internal class BleClientImpl(
         service: BluetoothGattService,
         characteristicUuid: UUID,
         enabled: Boolean,
-        timeoutMillis: Long,
-    ) = withGattOperation(timeoutMillis) { activeGatt, activeCallback ->
+        timeout: Duration?,
+    ) = withGattOperation(resolveTimeout(timeout, configuration.notificationOperationTimeout)) { activeGatt, activeCallback ->
         val characteristic = service.requireCharacteristic(characteristicUuid)
         activeCallback.setNotifications(activeGatt, characteristic, enabled)
     }
@@ -341,8 +390,8 @@ internal class BleClientImpl(
     override suspend fun enableNotifications(
         id: BleCharacteristicId,
         enabled: Boolean,
-        timeoutMillis: Long,
-    ) = withGattOperation(timeoutMillis) { activeGatt, activeCallback ->
+        timeout: Duration?,
+    ) = withGattOperation(resolveTimeout(timeout, configuration.notificationOperationTimeout)) { activeGatt, activeCallback ->
         val characteristic = activeGatt.requireCharacteristic(id)
         activeCallback.setNotifications(activeGatt, characteristic, enabled)
     }
@@ -417,9 +466,17 @@ internal class BleClientImpl(
     }
 
     override fun disconnect() {
+        if (_connectionState.value == BluetoothConnectionStateDisconnecting) {
+            return
+        }
+        if (_connectionState.value !is BluetoothConnectionStateConnected) {
+            return
+        }
+        manualDisconnectRequested.set(true)
+        allowAutoReconnect.set(false)
+        reconnectInProgress.set(false)
         val activeGatt = gatt
         if (activeGatt == null) {
-            _connectionState.value = BluetoothConnectionStateDisconnected
             return
         }
 
@@ -429,22 +486,27 @@ internal class BleClientImpl(
     }
 
     override fun close() {
+        manualDisconnectRequested.set(true)
+        allowAutoReconnect.set(false)
+        reconnectInProgress.set(false)
         gatt?.let(::closeGatt)
         callback?.clear()
+        cleanupScope.coroutineContext.cancelChildren()
         gatt = null
         callback = null
+        characteristicWriteMutexes.clear()
         _characteristicWriteStates.value = emptyMap()
         _connectionState.value = BluetoothConnectionStateDisconnected
     }
 
     private suspend fun <T> withGattOperation(
-        timeoutMillis: Long,
+        timeout: Duration,
         block: suspend (BluetoothGatt, GattCallback) -> T,
     ): T = operationMutex.withLock {
         requireConnectPermission()
         val activeGatt = gatt ?: throw NotConnectedException()
         val activeCallback = callback ?: throw NotConnectedException()
-        withTimeout(timeoutMillis) { block(activeGatt, activeCallback) }
+        withTimeout(timeout.inWholeMilliseconds) { block(activeGatt, activeCallback) }
     }
 
     private suspend fun <T> withCharacteristicWrite(
@@ -495,10 +557,116 @@ internal class BleClientImpl(
         }
     }
 
+    private fun resolveTimeout(
+        timeout: Duration?,
+        configuredTimeout: Duration,
+    ): Duration = timeout ?: configuredTimeout
+
     private fun closeGatt(activeGatt: BluetoothGatt) {
         runCatching { activeGatt.disconnect() }
         runCatching { activeGatt.close() }
         if (gatt === activeGatt) gatt = null
+    }
+
+    private fun persistBondedConnection(device: BluetoothDevice) {
+        val isBonded = runCatching { device.bondState == BluetoothDevice.BOND_BONDED }.getOrDefault(false)
+        val address = runCatching { device.address }.getOrNull()
+        val shouldPersist = configuration.storeBondedConnectionMetadata && isBonded && address != null
+        if (shouldPersist) {
+            runCatching {
+                bondedConnectionStore.upsert(
+                    BondedDeviceConnection(
+                        address = address,
+                        autoConnect = lastAutoConnect.get(),
+                        updatedAt = System.currentTimeMillis().milliseconds,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun maybeReconnectFromBondedStore(address: String) {
+        val reconnectEnabled = configuration.autoReconnectOnUnexpectedDisconnect
+        val autoReconnectAllowed = if (reconnectEnabled) allowAutoReconnect.compareAndSet(true, false) else false
+        val canStartReconnect = if (autoReconnectAllowed) reconnectInProgress.compareAndSet(false, true) else false
+
+        if (canStartReconnect) {
+            var shouldLaunch = true
+            synchronized(this) {
+                if (reconnectJob?.isActive == true) {
+                    reconnectInProgress.set(false)
+                    shouldLaunch = false
+                }
+            }
+
+            if (shouldLaunch) {
+                val job = cleanupScope.launch {
+                    try {
+                        var connectionEstablished = false
+                        var shouldContinue = true
+                        while (shouldContinue) {
+                            if (!isActive || manualDisconnectRequested.get() || connectionEstablished) {
+                                shouldContinue = false
+                            } else {
+                                delay(RECONNECT_RETRY_INTERVAL.inWholeMilliseconds)
+                                if (!isActive || manualDisconnectRequested.get()) {
+                                    shouldContinue = false
+                                }
+                            }
+                            if (shouldContinue && !connectionEstablished) {
+                                val storedConnection =
+                                    runCatching { bondedConnectionStore.findByAddress(address) }.getOrNull()
+                                if (storedConnection == null) {
+                                    shouldContinue = false
+                                } else {
+                                    try {
+                                        connect(
+                                            address = storedConnection.address,
+                                            autoConnect = storedConnection.autoConnect,
+                                            timeout = configuration.connectTimeout,
+                                        )
+                                        connectionEstablished = true
+                                    } catch (_: Throwable) {
+                                        if (!isActive || manualDisconnectRequested.get()) {
+                                            shouldContinue = false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } finally {
+                        reconnectInProgress.set(false)
+                        synchronized(this@BleClientImpl) {
+                            reconnectJob = null
+                        }
+                    }
+                }
+                synchronized(this) {
+                    reconnectJob = job
+                }
+            }
+        }
+    }
+
+    private fun applyConfiguredLinkParameters(activeGatt: BluetoothGatt) {
+        val mtu = configuration.preferredMtu
+        if (mtu != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            runCatching { activeGatt.requestMtu(mtu) }
+        }
+        val priority = configuration.preferredConnectionPriority
+        if (priority != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            runCatching { activeGatt.requestConnectionPriority(priority) }
+        }
+        val preferredPhy = configuration.preferredPhy
+        if (preferredPhy != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching {
+                activeGatt.setPreferredPhy(
+                    preferredPhy.txPhy,
+                    preferredPhy.rxPhy,
+                    preferredPhy.phyOptions,
+                )
+            }
+        }
     }
 
     private fun BluetoothGatt.requireCharacteristic(id: BleCharacteristicId): BluetoothGattCharacteristic {
@@ -717,6 +885,10 @@ internal class BleClientImpl(
                 BluetoothProfile.STATE_CONNECTED -> {
                     val info = device.toDeviceInfo()
                     _connectionState.value = BluetoothConnectionStateConnected(info)
+                    allowAutoReconnect.set(true)
+                    reconnectInProgress.set(false)
+                    persistBondedConnection(device)
+                    applyConfiguredLinkParameters(activeGatt)
                     takeConnectContinuation()?.resume(info)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -734,6 +906,17 @@ internal class BleClientImpl(
                         _connectionState.value = BluetoothConnectionStateDisconnected
                     }
                     closeGatt(activeGatt)
+                    clear()
+                    if (this@BleClientImpl.callback === this) {
+                        this@BleClientImpl.callback = null
+                    }
+                    this@BleClientImpl.characteristicWriteMutexes.clear()
+                    this@BleClientImpl._characteristicWriteStates.value = emptyMap()
+                    this@BleClientImpl.cleanupScope.coroutineContext.cancelChildren()
+                    val address = runCatching { device.address }.getOrNull()
+                    if (!manualDisconnectRequested.get() && address != null) {
+                        maybeReconnectFromBondedStore(address)
+                    }
                 }
             }
         }
@@ -879,5 +1062,6 @@ internal class BleClientImpl(
     companion object {
         private val CLIENT_CHARACTERISTIC_CONFIG_UUID: UUID =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private val RECONNECT_RETRY_INTERVAL: Duration = 2.seconds
     }
 }

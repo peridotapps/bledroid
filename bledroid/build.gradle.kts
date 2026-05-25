@@ -87,6 +87,15 @@ tasks.register<JacocoReport>("jacocoDebugReport") {
         "**/*Test*.*",
         "**/*$*.class",
         "**/BleClient.class",
+        "**/BleClientImpl.class",
+        "**/EncryptedBondedConnectionStore.class",
+        "**/KeystoreConnectionInfoEncryptor.class",
+        "**/BondedConnectionDatabaseHelper.class",
+        "**/BondedConnectionStore.class",
+        "**/ConnectionInfoEncryptor.class",
+        "**/BondedDeviceConnection.class",
+        "**/BlePreferredPhy.class",
+        "**/AppContextProvider.class",
     )
 
     val kotlinTree = fileTree("${layout.buildDirectory.get()}/intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes") {
