@@ -1,0 +1,51 @@
+build:
+  maxIssues: 999
+
+config:
+  validation: true
+
+processors:
+  active: true
+
+console-reports:
+  active: true
+
+output-reports:
+  active: true
+
+style:
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: true
+    maxLineLength: 180
+    excludeImportStatements: true
+    excludes: ['**/src/test/**']
+
+complexity:
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 25
+  LongMethod:
+    active: true
+    threshold: 100
+  LongParameterList:
+    active: true
+    functionThreshold: 8
+  TooManyFunctions:
+    active: true
+    thresholdInFiles: 50
+    thresholdInClasses: 40
+    thresholdInInterfaces: 20
+    thresholdInObjects: 30
+    thresholdInEnums: 20
+  LargeClass:
+    active: true
+    threshold: 1200
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: false
+  SwallowedException:
+    active: true
+    excludes: ['**/src/test/**']
