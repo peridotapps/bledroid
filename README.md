@@ -7,6 +7,7 @@ Bledroid is an Android Bluetooth library for connecting to and communicating wit
 - BLE scanning with `Flow<BleScanResult>`.
 - BLE GATT connect, service discovery, characteristic read/write, and notifications.
 - BLE client API exposes Flow-based response streams for notification-driven write flows.
+- Android Companion Device Manager (CDM) association support for BLE companion pairing flows.
 - Builder-based initialization with per-device defaults (timeouts, auto-connect, reconnect behavior, MTU, connection priority, preferred PHY).
 - Bluetooth broadcast monitoring for adapter state, bond changes, discovery, device found, ACL connect/disconnect, pairing requests, scan mode, and local name changes.
 - Encrypted bonded-connection metadata storage for reconnect on unexpected disconnect (configurable).
@@ -80,6 +81,7 @@ val bledroid = Bledroid.builder()
     .rssiTimeout(5.seconds)
     .notificationOperationTimeout(8.seconds)
     .notificationResponseTimeout(12.seconds)
+    .companionAssociationTimeout(20.seconds)
     .preferredMtu(247)
     .preferredConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
     .preferredPhy(
@@ -106,6 +108,44 @@ val job = lifecycleScope.launch {
 // Stop scanning by cancelling the collection job.
 job.cancel()
 ```
+
+## Companion Device Manager (CDM)
+
+Build an association request for BLE companion pairing and ask the system for an `IntentSender`:
+
+```kotlin
+import com.bledroid.companion.BleCompanionAssociationRequests
+import kotlin.time.Duration.Companion.seconds
+
+val request = BleCompanionAssociationRequests.ble(
+    singleDevice = true,
+    serviceUuid = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb"),
+)
+
+val intentSender = bledroid.requestCompanionAssociation(
+    request = request,
+    timeout = 20.seconds,
+)
+```
+
+Launch the returned `IntentSender` with `ActivityResultContracts.StartIntentSenderForResult()` to show system association UI:
+
+```kotlin
+val launcher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+    // Handle association result in result.data
+}
+
+launcher.launch(IntentSenderRequest.Builder(intentSender).build())
+```
+
+You can also check if CDM is available on the current device:
+
+```kotlin
+val available = bledroid.companionDeviceManager.isAvailable()
+```
+
+If you omit the timeout in `requestCompanionAssociation(...)`, the builder default
+`companionAssociationTimeout(...)` is used.
 
 ## Bluetooth Broadcast Events
 
