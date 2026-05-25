@@ -21,7 +21,7 @@ class BluetoothBroadcastEventParsingTest {
         val event = intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_STATE_CHANGED)
 
         assertEquals(
-            BluetoothBroadcastEvent.AdapterStateChanged(
+            BluetoothBroadcastEventAdapterStateChanged(
                 state = BluetoothAdapterPowerState.On,
                 previousState = BluetoothAdapterPowerState.TurningOn,
             ),
@@ -42,7 +42,7 @@ class BluetoothBroadcastEventParsingTest {
         val event = intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED)
 
         assertEquals(
-            BluetoothBroadcastEvent.ScanModeChanged(
+            BluetoothBroadcastEventScanModeChanged(
                 mode = BluetoothScanMode.ConnectableDiscoverable,
                 previousMode = BluetoothScanMode.Connectable,
             ),
@@ -55,11 +55,11 @@ class BluetoothBroadcastEventParsingTest {
         val intent = mockk<Intent>()
 
         assertEquals(
-            BluetoothBroadcastEvent.DiscoveryStarted,
+            BluetoothBroadcastEventDiscoveryStarted,
             intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_DISCOVERY_STARTED),
         )
         assertEquals(
-            BluetoothBroadcastEvent.DiscoveryFinished,
+            BluetoothBroadcastEventDiscoveryFinished,
             intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_DISCOVERY_FINISHED),
         )
     }
@@ -71,7 +71,7 @@ class BluetoothBroadcastEventParsingTest {
 
         val event = intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_LOCAL_NAME_CHANGED)
 
-        assertEquals(BluetoothBroadcastEvent.NameChanged("Test Adapter"), event)
+        assertEquals(BluetoothBroadcastEventNameChanged("Test Adapter"), event)
     }
 
     @Test
@@ -93,7 +93,7 @@ class BluetoothBroadcastEventParsingTest {
         val event = intent.toBluetoothBroadcastEvent(BluetoothDevice.ACTION_FOUND)
 
         assertEquals(
-            BluetoothBroadcastEvent.DeviceFound(
+            BluetoothBroadcastEventDeviceFound(
                 device = expectedDeviceInfo(),
                 rssi = (-54).toShort(),
             ),
@@ -111,7 +111,7 @@ class BluetoothBroadcastEventParsingTest {
         val event = intent.toBluetoothBroadcastEvent(BluetoothDevice.ACTION_FOUND)
 
         assertEquals(
-            BluetoothBroadcastEvent.DeviceFound(
+            BluetoothBroadcastEventDeviceFound(
                 device = expectedDeviceInfo(),
                 rssi = null,
             ),
@@ -134,7 +134,7 @@ class BluetoothBroadcastEventParsingTest {
         val event = intent.toBluetoothBroadcastEvent(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
 
         assertEquals(
-            BluetoothBroadcastEvent.BondStateChanged(
+            BluetoothBroadcastEventBondStateChanged(
                 device = expectedDeviceInfo(),
                 state = BluetoothBondState.Bonded,
                 previousState = BluetoothBondState.Bonding,
@@ -155,7 +155,7 @@ class BluetoothBroadcastEventParsingTest {
         val event = intent.toBluetoothBroadcastEvent(BluetoothDevice.ACTION_PAIRING_REQUEST)
 
         assertEquals(
-            BluetoothBroadcastEvent.PairingRequest(
+            BluetoothBroadcastEventPairingRequest(
                 device = expectedDeviceInfo(),
                 pairingVariant = BluetoothPairingVariant.PasskeyConfirmation,
             ),
@@ -170,15 +170,15 @@ class BluetoothBroadcastEventParsingTest {
         everyDeviceExtra(intent, device)
 
         assertEquals(
-            BluetoothBroadcastEvent.AclConnected(expectedDeviceInfo()),
+            BluetoothBroadcastEventAclConnected(expectedDeviceInfo()),
             intent.toBluetoothBroadcastEvent(BluetoothDevice.ACTION_ACL_CONNECTED),
         )
         assertEquals(
-            BluetoothBroadcastEvent.AclDisconnected(expectedDeviceInfo()),
+            BluetoothBroadcastEventAclDisconnected(expectedDeviceInfo()),
             intent.toBluetoothBroadcastEvent(BluetoothDevice.ACTION_ACL_DISCONNECTED),
         )
         assertEquals(
-            BluetoothBroadcastEvent.AclDisconnectRequested(expectedDeviceInfo()),
+            BluetoothBroadcastEventAclDisconnectRequested(expectedDeviceInfo()),
             intent.toBluetoothBroadcastEvent(BluetoothDevice.ACTION_ACL_DISCONNECT_REQUESTED),
         )
     }
@@ -206,7 +206,7 @@ class BluetoothBroadcastEventParsingTest {
                 intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, BluetoothDevice.ERROR)
             } returns variant
             assertEquals(
-                BluetoothBroadcastEvent.PairingRequest(
+                BluetoothBroadcastEventPairingRequest(
                     device = expectedDeviceInfo(),
                     pairingVariant = expected,
                 ),
@@ -248,7 +248,7 @@ class BluetoothBroadcastEventParsingTest {
 
         val event = intent.toBluetoothBroadcastEvent(BluetoothDevice.ACTION_FOUND)
         assertEquals(
-            BluetoothBroadcastEvent.DeviceFound(
+            BluetoothBroadcastEventDeviceFound(
                 device = expectedDeviceInfo(),
                 rssi = null,
             ),
@@ -261,6 +261,58 @@ class BluetoothBroadcastEventParsingTest {
         val intent = mockk<Intent>()
 
         assertNull(intent.toBluetoothBroadcastEvent("com.example.UNKNOWN"))
+    }
+
+    @Test
+    fun adapterAndScanModeFallbackToUnknownForUnexpectedValues() {
+        val intent = mockk<Intent>()
+        every { intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR) } returns Int.MIN_VALUE
+        every { intent.getIntExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.ERROR) } returns Int.MAX_VALUE
+        every { intent.getIntExtra(BluetoothAdapter.EXTRA_SCAN_MODE, BluetoothAdapter.ERROR) } returns Int.MIN_VALUE
+        every { intent.getIntExtra(BluetoothAdapter.EXTRA_PREVIOUS_SCAN_MODE, BluetoothAdapter.ERROR) } returns Int.MAX_VALUE
+
+        assertEquals(
+            BluetoothBroadcastEventAdapterStateChanged(
+                state = BluetoothAdapterPowerState.Unknown,
+                previousState = BluetoothAdapterPowerState.Unknown,
+            ),
+            intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_STATE_CHANGED),
+        )
+        assertEquals(
+            BluetoothBroadcastEventScanModeChanged(
+                mode = BluetoothScanMode.Unknown,
+                previousMode = BluetoothScanMode.Unknown,
+            ),
+            intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED),
+        )
+    }
+
+    @Test
+    fun adapterAndScanModeMapRemainingKnownValues() {
+        val intent = mockk<Intent>()
+        every { intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR) } returns BluetoothAdapter.STATE_OFF
+        every {
+            intent.getIntExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.ERROR)
+        } returns BluetoothAdapter.STATE_TURNING_OFF
+        every { intent.getIntExtra(BluetoothAdapter.EXTRA_SCAN_MODE, BluetoothAdapter.ERROR) } returns BluetoothAdapter.SCAN_MODE_NONE
+        every {
+            intent.getIntExtra(BluetoothAdapter.EXTRA_PREVIOUS_SCAN_MODE, BluetoothAdapter.ERROR)
+        } returns BluetoothAdapter.SCAN_MODE_NONE
+
+        assertEquals(
+            BluetoothBroadcastEventAdapterStateChanged(
+                state = BluetoothAdapterPowerState.Off,
+                previousState = BluetoothAdapterPowerState.TurningOff,
+            ),
+            intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_STATE_CHANGED),
+        )
+        assertEquals(
+            BluetoothBroadcastEventScanModeChanged(
+                mode = BluetoothScanMode.None,
+                previousMode = BluetoothScanMode.None,
+            ),
+            intent.toBluetoothBroadcastEvent(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED),
+        )
     }
 
     private fun mockDevice(): BluetoothDevice {

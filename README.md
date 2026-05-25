@@ -76,8 +76,8 @@ val job = lifecycleScope.launch {
             is BluetoothBroadcastEvent.DeviceFound -> {
                 Log.d("Bluetooth", "found ${event.device.address} rssi=${event.rssi}")
             }
-            BluetoothBroadcastEvent.DiscoveryStarted -> Unit
-            BluetoothBroadcastEvent.DiscoveryFinished -> Unit
+            BluetoothBroadcastEventDiscoveryStarted -> Unit
+            BluetoothBroadcastEventDiscoveryFinished -> Unit
             else -> Unit
         }
     }

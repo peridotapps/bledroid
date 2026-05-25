@@ -8,6 +8,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -90,5 +91,35 @@ class BluetoothPermissionsTest {
                 sdkInt = Build.VERSION_CODES.S,
             ),
         )
+    }
+
+    @Test
+    fun defaultArgumentOverloadsAreCovered() {
+        val context = mockk<Context>()
+        every { context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) } returns PackageManager.PERMISSION_GRANTED
+        every { context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) } returns PackageManager.PERMISSION_GRANTED
+
+        val required = BluetoothPermissions.requiredRuntimePermissions()
+        assertArrayEquals(
+            BluetoothPermissions.requiredRuntimePermissions(
+                scan = true,
+                connect = true,
+                sdkInt = Build.VERSION.SDK_INT,
+            ),
+            required,
+        )
+        assertArrayEquals(
+            BluetoothPermissions.requiredRuntimePermissionsForScan(Build.VERSION.SDK_INT),
+            BluetoothPermissions.requiredRuntimePermissionsForScan(),
+        )
+        assertArrayEquals(
+            BluetoothPermissions.requiredRuntimePermissionsForConnect(Build.VERSION.SDK_INT),
+            BluetoothPermissions.requiredRuntimePermissionsForConnect(),
+        )
+        assertArrayEquals(
+            emptyArray<String>(),
+            BluetoothPermissions.missingRuntimePermissions(context),
+        )
+        assertTrue(BluetoothPermissions.hasRuntimePermissions(context))
     }
 }

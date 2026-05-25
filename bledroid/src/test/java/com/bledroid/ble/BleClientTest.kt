@@ -14,8 +14,11 @@ import android.content.Context
 import android.content.pm.PackageManager
 import com.bledroid.core.BleCharacteristicId
 import com.bledroid.core.BluetoothConnectionState
+import com.bledroid.core.BluetoothConnectionStateDisconnected
+import com.bledroid.core.BluetoothConnectionStateDisconnecting
 import com.bledroid.core.BluetoothGattException
 import com.bledroid.core.BluetoothUnavailableException
+import com.bledroid.core.MissingBluetoothPermissionException
 import com.bledroid.core.NotConnectedException
 import io.mockk.every
 import io.mockk.just
@@ -44,6 +47,21 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class BleClientTest {
+    @Test
+    fun connectFailsWhenBluetoothConnectPermissionIsMissing() = runTest {
+        val client: BleClient = BleClientImpl(
+            context = mockDeniedContext(),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        try {
+            client.connect(address = "00:11:22:33:44:55", timeoutMillis = 100)
+            fail("Expected permission failure.")
+        } catch (error: MissingBluetoothPermissionException) {
+            assertTrue(error.message.orEmpty().contains("Missing Bluetooth connect permission"))
+        }
+    }
+
     @Test
     fun writeClearsCharacteristicWritingStateWhenWriteFailsBeforeConnection() = runTest {
         val serviceUuid = UUID.randomUUID()
@@ -743,14 +761,133 @@ class BleClientTest {
 
         fixture.client.disconnect()
 
-        assertEquals(BluetoothConnectionState.Disconnecting, fixture.client.connectionState.value)
+        assertEquals(BluetoothConnectionStateDisconnecting, fixture.client.connectionState.value)
         verify(exactly = 1) { fixture.gatt.disconnect() }
+    }
+
+    @Test
+    fun disconnectWithoutConnectionLeavesStateDisconnected() = runTest {
+        val client: BleClient = BleClientImpl(
+            context = mockPermittedContext(),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        client.disconnect()
+        assertEquals(BluetoothConnectionStateDisconnected, client.connectionState.value)
+    }
+
+    @Test
+    fun disconnectFailureFallsBackToCloseGatt() = runTest {
+        val fixture = connectedFixture(address = "FE:DC:BA:11:22:33")
+        every { fixture.gatt.disconnect() } throws RuntimeException("disconnect failure")
+        every { fixture.gatt.close() } answers {}
+
+        fixture.client.disconnect()
+
+        verify(atLeast = 1) { fixture.gatt.disconnect() }
+        verify(exactly = 1) { fixture.gatt.close() }
+    }
+
+    @Suppress("DEPRECATION")
+    @Test
+    fun deprecatedReadByIdFailsWhenServiceIsMissing() = runTest {
+        val fixture = connectedFixture(address = "01:01:01:01:01:01")
+        val id = BleCharacteristicId(UUID.randomUUID(), UUID.randomUUID())
+        every { fixture.gatt.getService(id.serviceUuid) } returns null
+
+        try {
+            fixture.client.read(id, timeoutMillis = 1_000)
+            fail("Expected missing service.")
+        } catch (error: BluetoothUnavailableException) {
+            assertTrue(error.message.orEmpty().contains("was not found"))
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    @Test
+    fun deprecatedReadByServiceFailsWhenCharacteristicMissing() = runTest {
+        val fixture = connectedFixture(address = "02:02:02:02:02:02")
+        val service = BluetoothGattService(UUID.randomUUID(), BluetoothGattService.SERVICE_TYPE_PRIMARY)
+        val missingCharacteristicUuid = UUID.randomUUID()
+
+        try {
+            fixture.client.read(service, missingCharacteristicUuid, timeoutMillis = 1_000)
+            fail("Expected missing characteristic.")
+        } catch (error: BluetoothUnavailableException) {
+            assertTrue(error.message.orEmpty().contains("was not found"))
+        }
+    }
+
+    @Test
+    fun notificationsByCharacteristicFailsWhenCharacteristicHasNoService() = runTest {
+        val fixture = connectedFixture(address = "03:03:03:03:03:03")
+        val characteristic = BluetoothGattCharacteristic(
+            UUID.randomUUID(),
+            BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+            BluetoothGattCharacteristic.PERMISSION_READ,
+        )
+
+        try {
+            fixture.client.notifications(characteristic).first()
+            fail("Expected detached characteristic failure.")
+        } catch (error: BluetoothUnavailableException) {
+            assertTrue(error.message.orEmpty().contains("is not attached to a service"))
+        }
+    }
+
+    @Test
+    fun writeAndObserveNotificationsEmitsResponse() = runTest {
+        val fixture = connectedFixture(address = "04:04:04:04:04:04", dispatcher = StandardTestDispatcher(testScheduler))
+        val service = BluetoothGattService(UUID.randomUUID(), BluetoothGattService.SERVICE_TYPE_PRIMARY)
+        val characteristic = BluetoothGattCharacteristic(
+            UUID.randomUUID(),
+            BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PERMISSION_WRITE,
+        )
+        service.addCharacteristic(characteristic)
+        val descriptor = BluetoothGattDescriptor(
+            UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"),
+            BluetoothGattDescriptor.PERMISSION_WRITE,
+        )
+        characteristic.addDescriptor(descriptor)
+
+        every { fixture.gatt.setCharacteristicNotification(characteristic, true) } returns true
+        every { fixture.gatt.writeDescriptor(descriptor, any()) } answers {
+            fixture.callback.onDescriptorWrite(fixture.gatt, descriptor, BluetoothGatt.GATT_SUCCESS)
+            android.bluetooth.BluetoothStatusCodes.SUCCESS
+        }
+        every { fixture.gatt.writeDescriptor(descriptor) } answers {
+            fixture.callback.onDescriptorWrite(fixture.gatt, descriptor, BluetoothGatt.GATT_SUCCESS)
+            true
+        }
+        every { fixture.gatt.writeCharacteristic(characteristic, any(), any()) } answers {
+            fixture.callback.onCharacteristicWrite(fixture.gatt, characteristic, BluetoothGatt.GATT_SUCCESS)
+            fixture.callback.onCharacteristicChanged(fixture.gatt, characteristic, byteArrayOf(0x7F))
+            android.bluetooth.BluetoothStatusCodes.SUCCESS
+        }
+
+        val response = fixture.client.writeAndObserveNotifications(
+            characteristic = characteristic,
+            value = byteArrayOf(0x01, 0x02),
+            operationTimeoutMillis = 1_000,
+            responseTimeoutMillis = 1_000,
+            disableNotificationsAfterResponse = false,
+        ).first()
+
+        assertArrayEquals(byteArrayOf(0x7F), response)
     }
 
     private fun mockPermittedContext(): Context {
         val context = mockk<Context>()
         every { context.applicationContext } returns context
         every { context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) } returns PackageManager.PERMISSION_GRANTED
+        return context
+    }
+
+    private fun mockDeniedContext(): Context {
+        val context = mockk<Context>()
+        every { context.applicationContext } returns context
+        every { context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) } returns PackageManager.PERMISSION_DENIED
         return context
     }
 

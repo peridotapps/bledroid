@@ -42,7 +42,7 @@ class BluetoothEventMonitorRobolectricTest {
 
         val event = awaitEvent.await()
         assertEquals(
-            BluetoothBroadcastEvent.AdapterStateChanged(
+            BluetoothBroadcastEventAdapterStateChanged(
                 state = BluetoothAdapterPowerState.On,
                 previousState = BluetoothAdapterPowerState.TurningOn,
             ),
@@ -65,8 +65,8 @@ class BluetoothEventMonitorRobolectricTest {
         receiver.onReceive(context, Intent(BluetoothAdapter.ACTION_DISCOVERY_FINISHED))
         assertEquals(
             listOf(
-                BluetoothBroadcastEvent.DiscoveryStarted,
-                BluetoothBroadcastEvent.DiscoveryFinished,
+                BluetoothBroadcastEventDiscoveryStarted,
+                BluetoothBroadcastEventDiscoveryFinished,
             ),
             events.await(),
         )
@@ -77,7 +77,7 @@ class BluetoothEventMonitorRobolectricTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val monitor = BluetoothEventMonitorImpl(context)
 
-        val awaitEvent = async { withTimeout(2_000) { monitor.events().first { it is BluetoothBroadcastEvent.NameChanged } } }
+        val awaitEvent = async { withTimeout(2_000) { monitor.events().first { it is BluetoothBroadcastEventNameChanged } } }
         val receiver = registerAndFindReceiver(this, monitor, context)
         receiver.onReceive(
             context,
@@ -86,7 +86,7 @@ class BluetoothEventMonitorRobolectricTest {
             },
         )
 
-        assertEquals(BluetoothBroadcastEvent.NameChanged("Desk Adapter"), awaitEvent.await())
+        assertEquals(BluetoothBroadcastEventNameChanged("Desk Adapter"), awaitEvent.await())
     }
 
     @Test
@@ -94,7 +94,7 @@ class BluetoothEventMonitorRobolectricTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val monitor = BluetoothEventMonitorImpl(context)
 
-        val awaitEvent = async { withTimeout(2_000) { monitor.events().first { it is BluetoothBroadcastEvent.ScanModeChanged } } }
+        val awaitEvent = async { withTimeout(2_000) { monitor.events().first { it is BluetoothBroadcastEventScanModeChanged } } }
         val receiver = registerAndFindReceiver(this, monitor, context)
         receiver.onReceive(
             context,
@@ -105,7 +105,7 @@ class BluetoothEventMonitorRobolectricTest {
         )
 
         assertEquals(
-            BluetoothBroadcastEvent.ScanModeChanged(
+            BluetoothBroadcastEventScanModeChanged(
                 mode = BluetoothScanMode.ConnectableDiscoverable,
                 previousMode = BluetoothScanMode.Connectable,
             ),

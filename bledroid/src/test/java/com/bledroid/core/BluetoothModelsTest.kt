@@ -49,6 +49,26 @@ class BluetoothModelsTest {
     }
 
     @Test
+    fun bluetoothDeviceMapsClassicAndDualTransportVariants() {
+        val classic = mockk<BluetoothDevice>()
+        every { classic.name } returns "Classic"
+        every { classic.address } returns "10:00:00:00:00:01"
+        every { classic.type } returns BluetoothDevice.DEVICE_TYPE_CLASSIC
+        every { classic.bondState } returns BluetoothDevice.BOND_NONE
+
+        val dual = mockk<BluetoothDevice>()
+        every { dual.name } returns "Dual"
+        every { dual.address } returns "10:00:00:00:00:02"
+        every { dual.type } returns BluetoothDevice.DEVICE_TYPE_DUAL
+        every { dual.bondState } returns BluetoothDevice.BOND_BONDING
+
+        assertEquals(BluetoothTransport.Classic, classic.toDeviceInfo().transport)
+        assertEquals(BluetoothBondState.None, classic.toDeviceInfo().bondState)
+        assertEquals(BluetoothTransport.Dual, dual.toDeviceInfo().transport)
+        assertEquals(BluetoothBondState.Bonding, dual.toDeviceInfo().bondState)
+    }
+
+    @Test
     fun characteristicPropertyHelpersDetectNotifyAndIndicate() {
         val notifyCharacteristic = mockk<BluetoothGattCharacteristic>()
         val indicateCharacteristic = mockk<BluetoothGattCharacteristic>()

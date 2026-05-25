@@ -3,54 +3,6 @@ package com.bledroid.core
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGattCharacteristic
-import java.util.UUID
-
-/** Android transport family used by a remote device or connection. */
-enum class BluetoothTransport {
-    Unknown,
-    Classic,
-    Ble,
-    Dual,
-}
-
-/** Bonding state reported by Android for a remote device. */
-enum class BluetoothBondState {
-    Unknown,
-    None,
-    Bonding,
-    Bonded,
-}
-
-/** Permission-safe summary of a remote Bluetooth device. */
-data class BluetoothDeviceInfo(
-    val name: String?,
-    val address: String,
-    val transport: BluetoothTransport,
-    val bondState: BluetoothBondState,
-)
-
-/** A characteristic identifier that is stable across GATT rediscovery. */
-data class BleCharacteristicId(
-    val serviceUuid: UUID,
-    val characteristicUuid: UUID,
-)
-
-/** Result emitted by BLE scanning. */
-data class BleScanResult(
-    val device: BluetoothDeviceInfo,
-    val rssi: Int,
-    val serviceUuids: List<UUID>,
-    val manufacturerData: Map<Int, ByteArray>,
-    val rawDevice: BluetoothDevice,
-)
-
-sealed interface BluetoothConnectionState {
-    data object Disconnected : BluetoothConnectionState
-    data object Connecting : BluetoothConnectionState
-    data class Connected(val device: BluetoothDeviceInfo) : BluetoothConnectionState
-    data object Disconnecting : BluetoothConnectionState
-    data class Failed(val error: Throwable) : BluetoothConnectionState
-}
 
 @SuppressLint("MissingPermission")
 internal fun BluetoothDevice.toDeviceInfo(fallbackName: String? = null): BluetoothDeviceInfo {
