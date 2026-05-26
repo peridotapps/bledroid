@@ -54,14 +54,14 @@ On Android 12 and newer this returns `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT`. O
 You can initialize with a context directly:
 
 ```kotlin
-val bleDroid = BleDroid(context)
+val bleDroid = BleManager(context)
 ```
 
 Or use global initialization once at app startup and then create instances without passing context:
 
 ```kotlin
-BleDroid.initialize(appContext)
-val bleDroid = BleDroid()
+BleManager.initialize(appContext)
+val bleDroid = BleManager()
 ```
 
 For device-specific behavior, use the builder pattern:
@@ -70,8 +70,8 @@ For device-specific behavior, use the builder pattern:
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-val bleDroid = BleDroid.builder()
-    .applicationContext(appContext) // optional if BleDroid.initialize(appContext) was already called
+val bleDroid = BleManager.builder()
+    .applicationContext(appContext) // optional if BleManager.initialize(appContext) was already called
     .deviceTypeTag("sensor-v2")
     .defaultAutoConnect(true)
     .connectTimeout(20.seconds)
@@ -97,7 +97,7 @@ val bleDroid = BleDroid.builder()
 ## BLE Scan
 
 ```kotlin
-val bleDroid = BleDroid(context)
+val bleDroid = BleManager(context)
 
 val job = lifecycleScope.launch {
     bleDroid.bleScanner.scan().collect { result ->
@@ -150,7 +150,7 @@ If you omit the timeout in `requestCompanionAssociation(...)`, the builder defau
 ## Bluetooth Broadcast Events
 
 ```kotlin
-val bleDroid = BleDroid(context)
+val bleDroid = BleManager(context)
 
 val job = lifecycleScope.launch {
     bleDroid.eventMonitor.events().collect { event ->
@@ -175,7 +175,7 @@ val job = lifecycleScope.launch {
 ## BLE GATT
 
 ```kotlin
-val client = BleDroid(context).client() // singleton per BleDroid instance
+val client = BleManager(context).client() // singleton per BleManager instance
 
 lifecycleScope.launch {
     client.connect("AA:BB:CC:DD:EE:FF")
@@ -255,7 +255,8 @@ client.characteristicWriteStates.collect { writingByCharacteristic ->
 Call `client.close()` when the connection is no longer needed.
 
 Connection behavior notes:
-- `client()` returns a single lazily created `BleClient` per `BleDroid` instance.
+
+- `client()` returns a single lazily created `BleClient` per `BleManager` instance.
 - Overlapping `connect()` calls are guarded so only one connect attempt runs at a time.
 - Calling `connect()` when already connected is a no-op and returns the currently connected device info.
 - `disconnect()` is idempotent while a disconnect is already in progress.

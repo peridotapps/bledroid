@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "BleDroid"
+rootProject.name = "Bledroid"
 include(":bledroid")

@@ -1,15 +1,18 @@
 package com.bledroid.companion
 
 import android.annotation.SuppressLint
+import android.annotation.TargetApi
 import android.bluetooth.le.ScanFilter
 import android.companion.AssociationRequest
 import android.companion.BluetoothLeDeviceFilter
+import android.os.Build
 import android.os.ParcelUuid
 import java.util.UUID
 import java.util.regex.Pattern
 
 object BleCompanionAssociationRequests {
     @SuppressLint("MissingPermission")
+    @TargetApi(Build.VERSION_CODES.O)
     fun createRequest(
         singleDevice: Boolean = true,
         deviceNamePattern: Pattern? = null,

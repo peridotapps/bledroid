@@ -30,17 +30,6 @@ import com.bledroid.core.supportsIndicate
 import com.bledroid.core.supportsNotify
 import com.bledroid.core.toDeviceInfo
 import com.bledroid.permissions.BluetoothPermissions
-import java.util.UUID
-import java.util.ArrayDeque
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArraySet
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,12 +44,23 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeout
+import java.util.ArrayDeque
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 @SuppressLint("MissingPermission")
 internal class BleClientImpl(
@@ -466,23 +466,19 @@ internal class BleClientImpl(
     }
 
     override fun disconnect() {
-        if (_connectionState.value == BluetoothConnectionStateDisconnecting) {
-            return
-        }
-        if (_connectionState.value !is BluetoothConnectionStateConnected) {
+        if (_connectionState.value == BluetoothConnectionStateDisconnecting ||
+            _connectionState.value !is BluetoothConnectionStateConnected
+        ) {
             return
         }
         manualDisconnectRequested.set(true)
         allowAutoReconnect.set(false)
         reconnectInProgress.set(false)
-        val activeGatt = gatt
-        if (activeGatt == null) {
-            return
+        gatt?.let { activeGatt ->
+            _connectionState.value = BluetoothConnectionStateDisconnecting
+            runCatching { activeGatt.disconnect() }
+                .onFailure { closeGatt(activeGatt) }
         }
-
-        _connectionState.value = BluetoothConnectionStateDisconnecting
-        runCatching { activeGatt.disconnect() }
-            .onFailure { closeGatt(activeGatt) }
     }
 
     override fun close() {
@@ -650,11 +646,11 @@ internal class BleClientImpl(
 
     private fun applyConfiguredLinkParameters(activeGatt: BluetoothGatt) {
         val mtu = configuration.preferredMtu
-        if (mtu != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        if (mtu != null) {
             runCatching { activeGatt.requestMtu(mtu) }
         }
         val priority = configuration.preferredConnectionPriority
-        if (priority != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        if (priority != null) {
             runCatching { activeGatt.requestConnectionPriority(priority) }
         }
         val preferredPhy = configuration.preferredPhy

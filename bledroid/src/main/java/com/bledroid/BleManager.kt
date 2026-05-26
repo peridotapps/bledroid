@@ -23,25 +23,14 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /** Entry point for creating Bluetooth scanners and clients. */
-class BleDroid private constructor(
-    private val appContext: Context,
+class BleManager private constructor(
+    private val appContext: Context = AppContextProvider.get(),
     private val deviceConfiguration: BleDeviceConfiguration,
 ) {
-    constructor() : this(
-        appContext = AppContextProvider.get(),
-        deviceConfiguration = BleDeviceConfiguration(),
-    )
-
-    constructor(context: Context) : this(
-        appContext = context.applicationContext,
-        deviceConfiguration = BleDeviceConfiguration(),
-    ) {
-        AppContextProvider.initialize(context)
-    }
-
     val bleScanner: BleScanner = BleScannerImpl(appContext)
     val eventMonitor: BluetoothEventMonitor = BluetoothEventMonitorImpl(appContext)
-    val companionDeviceManager: BleCompanionDeviceManager = BleCompanionDeviceManagerImpl(appContext)
+    val companionDeviceManager: BleCompanionDeviceManager =
+        BleCompanionDeviceManagerImpl(appContext)
     private val singletonClient: BleClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         BleClientImpl(
             context = appContext,
@@ -151,15 +140,16 @@ class BleDroid private constructor(
             companionAssociationTimeout = value
         }
 
-        fun storeBondedConnectionMetadata(value: Boolean) = apply { storeBondedConnectionMetadata = value }
+        fun storeBondedConnectionMetadata(value: Boolean) =
+            apply { storeBondedConnectionMetadata = value }
 
         fun autoReconnectOnUnexpectedDisconnect(value: Boolean) = apply {
             autoReconnectOnUnexpectedDisconnect = value
         }
 
-        fun build(): BleDroid {
+        fun build(): BleManager {
             val resolvedContext = appContext ?: AppContextProvider.get()
-            return BleDroid(
+            return BleManager(
                 appContext = resolvedContext,
                 deviceConfiguration = BleDeviceConfiguration(
                     deviceTypeTag = deviceTypeTag,

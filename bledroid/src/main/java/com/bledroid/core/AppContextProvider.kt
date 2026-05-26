@@ -1,5 +1,6 @@
 package com.bledroid.core
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 
@@ -18,12 +19,13 @@ internal object AppContextProvider {
         val resolved = resolveFromAndroidRuntime()
             ?: throw IllegalStateException(
                 "Application context is not available yet. " +
-                    "Call BleDroid.initialize(context) once during app startup before creating clients.",
+                        "Call BleManager.initialize(context) once during app startup before creating clients.",
             )
         appContext = resolved
         return resolved
     }
 
+    @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
     private fun resolveFromAndroidRuntime(): Context? {
         val appFromActivityThread = runCatching {
             val clazz = Class.forName("android.app.ActivityThread")
