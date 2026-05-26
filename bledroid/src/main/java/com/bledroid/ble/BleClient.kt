@@ -5,9 +5,9 @@ import android.bluetooth.BluetoothGattService
 import com.bledroid.core.BleCharacteristicId
 import com.bledroid.core.BluetoothConnectionState
 import com.bledroid.core.BluetoothDeviceInfo
-import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import java.util.UUID
 import kotlin.time.Duration
 
 /** BLE GATT client with serialized operations and Flow-based notifications. */

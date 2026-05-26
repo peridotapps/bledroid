@@ -14,7 +14,10 @@ internal class EncryptedBondedConnectionStore(
         val values = ContentValues().apply {
             put(COLUMN_ADDRESS, connection.address)
             put(COLUMN_AUTO_CONNECT, encryptor.encrypt(connection.autoConnect.toString()))
-            put(COLUMN_UPDATED_AT, encryptor.encrypt(connection.updatedAt.inWholeMilliseconds.toString()))
+            put(
+                COLUMN_UPDATED_AT,
+                encryptor.encrypt(connection.updatedAt.inWholeMilliseconds.toString())
+            )
         }
         dbHelper.writableDatabase.insertWithOnConflict(
             TABLE_NAME,
@@ -37,11 +40,19 @@ internal class EncryptedBondedConnectionStore(
             "1",
         ).use { cursor ->
             if (!cursor.moveToFirst()) return null
-            val encryptedAutoConnect = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_AUTO_CONNECT))
-            val encryptedUpdatedAt = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_UPDATED_AT))
-            val autoConnect = encryptor.decrypt(encryptedAutoConnect).toBooleanStrictOrNull() ?: false
-            val updatedAt = (encryptor.decrypt(encryptedUpdatedAt).toLongOrNull() ?: 0L).milliseconds
-            return BondedDeviceConnection(address = address, autoConnect = autoConnect, updatedAt = updatedAt)
+            val encryptedAutoConnect =
+                cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_AUTO_CONNECT))
+            val encryptedUpdatedAt =
+                cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_UPDATED_AT))
+            val autoConnect =
+                encryptor.decrypt(encryptedAutoConnect).toBooleanStrictOrNull() ?: false
+            val updatedAt =
+                (encryptor.decrypt(encryptedUpdatedAt).toLongOrNull() ?: 0L).milliseconds
+            return BondedDeviceConnection(
+                address = address,
+                autoConnect = autoConnect,
+                updatedAt = updatedAt
+            )
         }
     }
 

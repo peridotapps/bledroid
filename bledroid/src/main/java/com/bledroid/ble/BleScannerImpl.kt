@@ -16,12 +16,12 @@ import com.bledroid.core.requireAdapter
 import com.bledroid.core.requireEnabled
 import com.bledroid.core.toDeviceInfo
 import com.bledroid.permissions.BluetoothPermissions
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import java.util.UUID
 
 @SuppressLint("MissingPermission")
 internal class BleScannerImpl(context: Context) : BleScanner {

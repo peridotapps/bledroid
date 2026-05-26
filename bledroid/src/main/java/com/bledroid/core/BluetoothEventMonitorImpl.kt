@@ -11,6 +11,7 @@ import android.os.Build
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+
 internal class BluetoothEventMonitorImpl(
     private val context: Context,
 ) : BluetoothEventMonitor {
@@ -54,73 +55,108 @@ internal class BluetoothEventMonitorImpl(
 }
 
 @SuppressLint("InlinedApi", "MissingPermission")
-internal fun Intent.toBluetoothBroadcastEvent(action: String): BluetoothBroadcastEvent? = when (action) {
-    BluetoothAdapter.ACTION_STATE_CHANGED -> BluetoothBroadcastEventAdapterStateChanged(
-        state = getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR).toBluetoothAdapterPowerState(),
-        previousState = getIntExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.ERROR).toBluetoothAdapterPowerState(),
-    )
-
-    BluetoothAdapter.ACTION_SCAN_MODE_CHANGED -> BluetoothBroadcastEventScanModeChanged(
-        mode = getIntExtra(BluetoothAdapter.EXTRA_SCAN_MODE, BluetoothAdapter.ERROR).toBluetoothScanMode(),
-        previousMode = getIntExtra(BluetoothAdapter.EXTRA_PREVIOUS_SCAN_MODE, BluetoothAdapter.ERROR).toBluetoothScanMode(),
-    )
-
-    BluetoothAdapter.ACTION_DISCOVERY_STARTED -> BluetoothBroadcastEventDiscoveryStarted
-
-    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> BluetoothBroadcastEventDiscoveryFinished
-
-    BluetoothAdapter.ACTION_LOCAL_NAME_CHANGED -> {
-        val name = getStringExtra(BluetoothAdapter.EXTRA_LOCAL_NAME) ?: return null
-        BluetoothBroadcastEventNameChanged(name)
-    }
-
-    BluetoothDevice.ACTION_FOUND -> {
-        val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return null
-        val rssi = if (hasExtra(BluetoothDevice.EXTRA_RSSI)) {
-            getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).takeIf { it != Short.MIN_VALUE }
-        } else {
-            null
-        }
-        BluetoothBroadcastEventDeviceFound(device = device.toDeviceInfo(), rssi = rssi)
-    }
-
-    BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
-        val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return null
-        BluetoothBroadcastEventBondStateChanged(
-            device = device.toDeviceInfo(),
-            state = getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR).toBluetoothBondState(),
-            previousState = getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.ERROR).toBluetoothBondState(),
+internal fun Intent.toBluetoothBroadcastEvent(action: String): BluetoothBroadcastEvent? =
+    when (action) {
+        BluetoothAdapter.ACTION_STATE_CHANGED -> BluetoothBroadcastEventAdapterStateChanged(
+            state = getIntExtra(
+                BluetoothAdapter.EXTRA_STATE,
+                BluetoothAdapter.ERROR
+            ).toBluetoothAdapterPowerState(),
+            previousState = getIntExtra(
+                BluetoothAdapter.EXTRA_PREVIOUS_STATE,
+                BluetoothAdapter.ERROR
+            ).toBluetoothAdapterPowerState(),
         )
-    }
 
-    BluetoothDevice.ACTION_ACL_CONNECTED -> {
-        val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return null
-        BluetoothBroadcastEventAclConnected(device.toDeviceInfo())
-    }
+        BluetoothAdapter.ACTION_SCAN_MODE_CHANGED -> BluetoothBroadcastEventScanModeChanged(
+            mode = getIntExtra(
+                BluetoothAdapter.EXTRA_SCAN_MODE,
+                BluetoothAdapter.ERROR
+            ).toBluetoothScanMode(),
+            previousMode = getIntExtra(
+                BluetoothAdapter.EXTRA_PREVIOUS_SCAN_MODE,
+                BluetoothAdapter.ERROR
+            ).toBluetoothScanMode(),
+        )
 
-    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-        val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return null
-        BluetoothBroadcastEventAclDisconnected(device.toDeviceInfo())
-    }
+        BluetoothAdapter.ACTION_DISCOVERY_STARTED -> BluetoothBroadcastEventDiscoveryStarted
 
-    BluetoothDevice.ACTION_ACL_DISCONNECT_REQUESTED -> {
-        val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return null
-        BluetoothBroadcastEventAclDisconnectRequested(device.toDeviceInfo())
-    }
+        BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> BluetoothBroadcastEventDiscoveryFinished
 
-    BluetoothDevice.ACTION_PAIRING_REQUEST -> {
-        val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return null
-        val pairing = getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, BluetoothDevice.ERROR).toBluetoothPairingVariant()
-        BluetoothBroadcastEventPairingRequest(device.toDeviceInfo(), pairing)
-    }
+        BluetoothAdapter.ACTION_LOCAL_NAME_CHANGED -> {
+            val name = getStringExtra(BluetoothAdapter.EXTRA_LOCAL_NAME) ?: return null
+            BluetoothBroadcastEventNameChanged(name)
+        }
 
-    else -> null
-}
+        BluetoothDevice.ACTION_FOUND -> {
+            val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                ?: return null
+            val rssi = if (hasExtra(BluetoothDevice.EXTRA_RSSI)) {
+                getShortExtra(
+                    BluetoothDevice.EXTRA_RSSI,
+                    Short.MIN_VALUE
+                ).takeIf { it != Short.MIN_VALUE }
+            } else {
+                null
+            }
+            BluetoothBroadcastEventDeviceFound(device = device.toDeviceInfo(), rssi = rssi)
+        }
+
+        BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
+            val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                ?: return null
+            BluetoothBroadcastEventBondStateChanged(
+                device = device.toDeviceInfo(),
+                state = getIntExtra(
+                    BluetoothDevice.EXTRA_BOND_STATE,
+                    BluetoothDevice.ERROR
+                ).toBluetoothBondState(),
+                previousState = getIntExtra(
+                    BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE,
+                    BluetoothDevice.ERROR
+                ).toBluetoothBondState(),
+            )
+        }
+
+        BluetoothDevice.ACTION_ACL_CONNECTED -> {
+            val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                ?: return null
+            BluetoothBroadcastEventAclConnected(device.toDeviceInfo())
+        }
+
+        BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+            val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                ?: return null
+            BluetoothBroadcastEventAclDisconnected(device.toDeviceInfo())
+        }
+
+        BluetoothDevice.ACTION_ACL_DISCONNECT_REQUESTED -> {
+            val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                ?: return null
+            BluetoothBroadcastEventAclDisconnectRequested(device.toDeviceInfo())
+        }
+
+        BluetoothDevice.ACTION_PAIRING_REQUEST -> {
+            val device = getParcelableExtraCompat<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                ?: return null
+            val pairing = getIntExtra(
+                BluetoothDevice.EXTRA_PAIRING_VARIANT,
+                BluetoothDevice.ERROR
+            ).toBluetoothPairingVariant()
+            BluetoothBroadcastEventPairingRequest(device.toDeviceInfo(), pairing)
+        }
+
+        else -> null
+    }
 
 @Suppress("DEPRECATION")
 private inline fun <reified T> Intent.getParcelableExtraCompat(key: String): T? =
     when {
-        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU -> getParcelableExtra(key, T::class.java)
+        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU -> getParcelableExtra(
+            key,
+            T::class.java
+        )
+
         else -> getParcelableExtra(key)
     }
 

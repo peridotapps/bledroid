@@ -8,20 +8,20 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.bledroid.core.BluetoothUnavailableException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeout
 
 internal class BleCompanionDeviceManagerImpl(
     private val appContext: Context,
 ) : BleCompanionDeviceManager {
     override fun isAvailable(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            appContext.getSystemService(CompanionDeviceManager::class.java) != null
+                appContext.getSystemService(CompanionDeviceManager::class.java) != null
 
     override suspend fun requestAssociation(
         request: AssociationRequest,
