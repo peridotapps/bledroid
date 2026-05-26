@@ -1,13 +1,17 @@
 package com.bledroid
 
 import android.annotation.SuppressLint
+import android.companion.AssociationRequest
 import android.content.Context
+import android.content.IntentSender
 import com.bledroid.ble.BleClient
 import com.bledroid.ble.BleClientImpl
 import com.bledroid.ble.BleDeviceConfiguration
 import com.bledroid.ble.BlePreferredPhy
 import com.bledroid.ble.BleScanner
 import com.bledroid.ble.BleScannerImpl
+import com.bledroid.companion.BleCompanionDeviceManager
+import com.bledroid.companion.BleCompanionDeviceManagerImpl
 import com.bledroid.core.AppContextProvider
 import com.bledroid.core.BluetoothDeviceInfo
 import com.bledroid.core.BluetoothEventMonitor
@@ -19,7 +23,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /** Entry point for creating Bluetooth scanners and clients. */
-class Bledroid private constructor(
+class BleDroid private constructor(
     private val appContext: Context,
     private val deviceConfiguration: BleDeviceConfiguration,
 ) {
@@ -37,6 +41,7 @@ class Bledroid private constructor(
 
     val bleScanner: BleScanner = BleScannerImpl(appContext)
     val eventMonitor: BluetoothEventMonitor = BluetoothEventMonitorImpl(appContext)
+    val companionDeviceManager: BleCompanionDeviceManager = BleCompanionDeviceManagerImpl(appContext)
     private val singletonClient: BleClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         BleClientImpl(
             context = appContext,
@@ -63,6 +68,14 @@ class Bledroid private constructor(
             .toSet()
     }.getOrDefault(emptySet())
 
+    suspend fun requestCompanionAssociation(
+        request: AssociationRequest,
+        timeout: Duration? = null,
+    ): IntentSender = companionDeviceManager.requestAssociation(
+        request = request,
+        timeout = timeout ?: deviceConfiguration.companionAssociationTimeout,
+    )
+
     companion object {
         fun initialize(context: Context) {
             AppContextProvider.initialize(context)
@@ -85,6 +98,7 @@ class Bledroid private constructor(
         private var preferredMtu: Int? = null
         private var preferredConnectionPriority: Int? = null
         private var preferredPhy: BlePreferredPhy? = null
+        private var companionAssociationTimeout: Duration = 30.seconds
         private var storeBondedConnectionMetadata: Boolean = true
         private var autoReconnectOnUnexpectedDisconnect: Boolean = true
 
@@ -133,15 +147,19 @@ class Bledroid private constructor(
 
         fun clearPreferredPhy() = apply { preferredPhy = null }
 
+        fun companionAssociationTimeout(value: Duration) = apply {
+            companionAssociationTimeout = value
+        }
+
         fun storeBondedConnectionMetadata(value: Boolean) = apply { storeBondedConnectionMetadata = value }
 
         fun autoReconnectOnUnexpectedDisconnect(value: Boolean) = apply {
             autoReconnectOnUnexpectedDisconnect = value
         }
 
-        fun build(): Bledroid {
+        fun build(): BleDroid {
             val resolvedContext = appContext ?: AppContextProvider.get()
-            return Bledroid(
+            return BleDroid(
                 appContext = resolvedContext,
                 deviceConfiguration = BleDeviceConfiguration(
                     deviceTypeTag = deviceTypeTag,
@@ -156,6 +174,7 @@ class Bledroid private constructor(
                     preferredMtu = preferredMtu,
                     preferredConnectionPriority = preferredConnectionPriority,
                     preferredPhy = preferredPhy,
+                    companionAssociationTimeout = companionAssociationTimeout,
                     storeBondedConnectionMetadata = storeBondedConnectionMetadata,
                     autoReconnectOnUnexpectedDisconnect = autoReconnectOnUnexpectedDisconnect,
                 ),

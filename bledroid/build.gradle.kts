@@ -135,7 +135,7 @@ publishing {
     publications {
         register<MavenPublication>("release") {
             groupId = project.group.toString()
-            artifactId = "bledroid"
+            artifactId = "bleDroid"
             version = project.version.toString()
 
             afterEvaluate {

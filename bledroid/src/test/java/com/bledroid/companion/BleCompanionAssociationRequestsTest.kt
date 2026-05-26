@@ -13,8 +13,8 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class BleCompanionAssociationRequestsTest {
     @Test
-    fun bleBuildsAssociationRequest() {
-        val request: AssociationRequest = BleCompanionAssociationRequests.ble(
+    fun createRequestBuildsAssociationRequest() {
+        val request: AssociationRequest = BleCompanionAssociationRequests.createRequest(
             singleDevice = true,
             deviceNamePattern = Pattern.compile("Sensor.*"),
             serviceUuid = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb"),

@@ -18,7 +18,7 @@ internal object AppContextProvider {
         val resolved = resolveFromAndroidRuntime()
             ?: throw IllegalStateException(
                 "Application context is not available yet. " +
-                    "Call Bledroid.initialize(context) once during app startup before creating clients.",
+                    "Call BleDroid.initialize(context) once during app startup before creating clients.",
             )
         appContext = resolved
         return resolved

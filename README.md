@@ -1,6 +1,6 @@
-# Bledroid
+# BleDroid
 
-Bledroid is an Android Bluetooth library for connecting to and communicating with devices over BLE GATT.
+BleDroid is an Android Bluetooth library for connecting to and communicating with devices over BLE GATT.
 
 ## Capabilities
 
@@ -35,7 +35,7 @@ Then consume it as:
 
 ```kotlin
 dependencies {
-    implementation("com.bledroid:bledroid:0.1.0")
+    implementation("com.bledroid:bleDroid:0.1.0")
 }
 ```
 
@@ -54,14 +54,14 @@ On Android 12 and newer this returns `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT`. O
 You can initialize with a context directly:
 
 ```kotlin
-val bledroid = Bledroid(context)
+val bleDroid = BleDroid(context)
 ```
 
 Or use global initialization once at app startup and then create instances without passing context:
 
 ```kotlin
-Bledroid.initialize(appContext)
-val bledroid = Bledroid()
+BleDroid.initialize(appContext)
+val bleDroid = BleDroid()
 ```
 
 For device-specific behavior, use the builder pattern:
@@ -70,8 +70,8 @@ For device-specific behavior, use the builder pattern:
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-val bledroid = Bledroid.builder()
-    .applicationContext(appContext) // optional if Bledroid.initialize(appContext) was already called
+val bleDroid = BleDroid.builder()
+    .applicationContext(appContext) // optional if BleDroid.initialize(appContext) was already called
     .deviceTypeTag("sensor-v2")
     .defaultAutoConnect(true)
     .connectTimeout(20.seconds)
@@ -97,10 +97,10 @@ val bledroid = Bledroid.builder()
 ## BLE Scan
 
 ```kotlin
-val bledroid = Bledroid(context)
+val bleDroid = BleDroid(context)
 
 val job = lifecycleScope.launch {
-    bledroid.bleScanner.scan().collect { result ->
+    bleDroid.bleScanner.scan().collect { result ->
         Log.d("Bluetooth", "${result.device.name} ${result.device.address} rssi=${result.rssi}")
     }
 }
@@ -117,12 +117,12 @@ Build an association request for BLE companion pairing and ask the system for an
 import com.bledroid.companion.BleCompanionAssociationRequests
 import kotlin.time.Duration.Companion.seconds
 
-val request = BleCompanionAssociationRequests.ble(
+val request = BleCompanionAssociationRequests.createRequest(
     singleDevice = true,
     serviceUuid = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb"),
 )
 
-val intentSender = bledroid.requestCompanionAssociation(
+val intentSender = bleDroid.requestCompanionAssociation(
     request = request,
     timeout = 20.seconds,
 )
@@ -141,7 +141,7 @@ launcher.launch(IntentSenderRequest.Builder(intentSender).build())
 You can also check if CDM is available on the current device:
 
 ```kotlin
-val available = bledroid.companionDeviceManager.isAvailable()
+val available = bleDroid.companionDeviceManager.isAvailable()
 ```
 
 If you omit the timeout in `requestCompanionAssociation(...)`, the builder default
@@ -150,10 +150,10 @@ If you omit the timeout in `requestCompanionAssociation(...)`, the builder defau
 ## Bluetooth Broadcast Events
 
 ```kotlin
-val bledroid = Bledroid(context)
+val bleDroid = BleDroid(context)
 
 val job = lifecycleScope.launch {
-    bledroid.eventMonitor.events().collect { event ->
+    bleDroid.eventMonitor.events().collect { event ->
         when (event) {
             is BluetoothBroadcastEvent.AdapterStateChanged -> {
                 Log.d("Bluetooth", "adapter=${event.state} previous=${event.previousState}")
@@ -175,7 +175,7 @@ val job = lifecycleScope.launch {
 ## BLE GATT
 
 ```kotlin
-val client = Bledroid(context).client() // singleton per Bledroid instance
+val client = BleDroid(context).client() // singleton per BleDroid instance
 
 lifecycleScope.launch {
     client.connect("AA:BB:CC:DD:EE:FF")
@@ -255,7 +255,7 @@ client.characteristicWriteStates.collect { writingByCharacteristic ->
 Call `client.close()` when the connection is no longer needed.
 
 Connection behavior notes:
-- `client()` returns a single lazily created `BleClient` per `Bledroid` instance.
+- `client()` returns a single lazily created `BleClient` per `BleDroid` instance.
 - Overlapping `connect()` calls are guarded so only one connect attempt runs at a time.
 - Calling `connect()` when already connected is a no-op and returns the currently connected device info.
 - `disconnect()` is idempotent while a disconnect is already in progress.

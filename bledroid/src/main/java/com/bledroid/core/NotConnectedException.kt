@@ -2,4 +2,4 @@ package com.bledroid.core
 
 class NotConnectedException(
     message: String = "No Bluetooth connection is active.",
-) : BledroidException(message)
+) : BleDroidException(message)

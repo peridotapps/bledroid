@@ -10,7 +10,7 @@ import java.util.regex.Pattern
 
 object BleCompanionAssociationRequests {
     @SuppressLint("MissingPermission")
-    fun ble(
+    fun createRequest(
         singleDevice: Boolean = true,
         deviceNamePattern: Pattern? = null,
         serviceUuid: UUID? = null,

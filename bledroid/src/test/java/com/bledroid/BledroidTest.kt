@@ -15,7 +15,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class BledroidTest {
+class BleDroidTest {
     @Test
     fun newClientsAndHelpersWorkWhenBluetoothManagerIsAvailable() {
         val context = mockk<Context>()
@@ -33,16 +33,17 @@ class BledroidTest {
         every { bondedDevice.type } returns BluetoothDevice.DEVICE_TYPE_DUAL
         every { bondedDevice.bondState } returns BluetoothDevice.BOND_BONDED
 
-        val bledroid = Bledroid(context)
+        val bleDroid = BleDroid(context)
 
-        assertNotNull(bledroid.bleScanner)
-        assertNotNull(bledroid.eventMonitor)
-        assertNotNull(bledroid.client())
-        assertSame(bledroid.client(), bledroid.client())
-        assertTrue(bledroid.isBluetoothAvailable())
-        assertTrue(bledroid.isBluetoothEnabled())
+        assertNotNull(bleDroid.bleScanner)
+        assertNotNull(bleDroid.eventMonitor)
+        assertNotNull(bleDroid.companionDeviceManager)
+        assertNotNull(bleDroid.client())
+        assertSame(bleDroid.client(), bleDroid.client())
+        assertTrue(bleDroid.isBluetoothAvailable())
+        assertTrue(bleDroid.isBluetoothEnabled())
 
-        val bondedDevices = bledroid.bondedDevices()
+        val bondedDevices = bleDroid.bondedDevices()
         assertEquals(1, bondedDevices.size)
         val bonded = bondedDevices.first()
         assertEquals("Thermometer", bonded.name)
@@ -57,11 +58,11 @@ class BledroidTest {
         every { context.applicationContext } returns context
         every { context.getSystemService(BluetoothManager::class.java) } returns null
 
-        val bledroid = Bledroid(context)
+        val bleDroid = BleDroid(context)
 
-        assertFalse(bledroid.isBluetoothAvailable())
-        assertFalse(bledroid.isBluetoothEnabled())
-        assertTrue(bledroid.bondedDevices().isEmpty())
+        assertFalse(bleDroid.isBluetoothAvailable())
+        assertFalse(bleDroid.isBluetoothEnabled())
+        assertTrue(bleDroid.bondedDevices().isEmpty())
     }
 
     @Test
@@ -74,10 +75,10 @@ class BledroidTest {
         every { bluetoothManager.adapter } returns adapter
         every { adapter.isEnabled } returns false
 
-        val bledroid = Bledroid(context)
+        val bleDroid = BleDroid(context)
 
-        assertTrue(bledroid.isBluetoothAvailable())
-        assertFalse(bledroid.isBluetoothEnabled())
+        assertTrue(bleDroid.isBluetoothAvailable())
+        assertFalse(bleDroid.isBluetoothEnabled())
     }
 
     @Test
@@ -91,10 +92,10 @@ class BledroidTest {
         every { adapter.isEnabled } returns true
         every { adapter.bondedDevices } returns emptySet()
 
-        Bledroid.initialize(context)
-        val bledroid = Bledroid()
+        BleDroid.initialize(context)
+        val bleDroid = BleDroid()
 
-        assertTrue(bledroid.isBluetoothAvailable())
-        assertTrue(bledroid.isBluetoothEnabled())
+        assertTrue(bleDroid.isBluetoothAvailable())
+        assertTrue(bleDroid.isBluetoothEnabled())
     }
 }

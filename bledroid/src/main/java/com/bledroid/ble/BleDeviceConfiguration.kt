@@ -16,6 +16,7 @@ internal data class BleDeviceConfiguration(
     val preferredMtu: Int? = null,
     val preferredConnectionPriority: Int? = null,
     val preferredPhy: BlePreferredPhy? = null,
+    val companionAssociationTimeout: Duration = 30.seconds,
     val storeBondedConnectionMetadata: Boolean = true,
     val autoReconnectOnUnexpectedDisconnect: Boolean = true,
 )
